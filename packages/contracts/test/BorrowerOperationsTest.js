@@ -205,8 +205,8 @@ contract('BorrowerOperations', async accounts => {
     it("addColl(), active Trove: applies pending rewards and updates user's L_ETH, L_LUSDDebt snapshots", async () => {
       // --- SETUP ---
 
-      const { collateral: aliceCollBefore, totalDebt: aliceDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(15000, 18)), ICR: toBN(dec(10, 18)), extraParams: { from: alice } })
-      const { collateral: bobCollBefore, totalDebt: bobDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(10, 18)), extraParams: { from: bob } })
+      const { collateral: aliceCollBefore, totalDebt: aliceDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(15000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
+      const { collateral: bobCollBefore, totalDebt: bobDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
       await openTrove({ extraLUSDAmount: toBN(dec(5000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: carol } })
 
       // --- TEST ---
@@ -2618,12 +2618,6 @@ contract('BorrowerOperations', async accounts => {
 
       assert.isFalse(await troveManager.checkRecoveryMode(price))
    
-      /*
-      await assertRevert(
-        borrowerOperations.closeTrove({ from: alice }),
-        "BorrowerOps: An operation that would result in TCR < CCR is not permitted"
-      )
-      */
       await borrowerOperations.closeTrove({ from: alice })
     })
 
