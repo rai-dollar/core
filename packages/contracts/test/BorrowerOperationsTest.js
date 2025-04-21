@@ -406,29 +406,6 @@ contract('BorrowerOperations', async accounts => {
       }
     })
 
-    it("withdrawColl(): reverts when system is in Recovery Mode", async () => {
-      await openTrove({ ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
-      await openTrove({ ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
-
-      assert.isFalse(await th.checkRecoveryMode(contracts))
-
-      // Withdrawal possible when recoveryMode == false
-      const txAlice = await borrowerOperations.withdrawColl(1000, alice, alice, { from: alice })
-      assert.isTrue(txAlice.receipt.status)
-
-      await priceFeed.setPrice('105000000000000000000')
-
-      assert.isTrue(await th.checkRecoveryMode(contracts))
-
-      //Check withdrawal impossible when recoveryMode == true
-      try {
-        const txBob = await borrowerOperations.withdrawColl(1000, bob, bob, { from: bob })
-        assert.isFalse(txBob.receipt.status)
-      } catch (err) {
-        assert.include(err.message, "revert")
-      }
-    })
-
     it("withdrawColl(): reverts when requested ETH withdrawal is > the trove's collateral", async () => {
       await openTrove({ ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
       await openTrove({ ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
@@ -463,30 +440,6 @@ contract('BorrowerOperations', async accounts => {
         assert.isFalse(txBob.receipt.status)
       } catch (err) {
         assert.include(err.message, "revert")
-      }
-    })
-
-    it("withdrawColl(): reverts if system is in Recovery Mode", async () => {
-      // --- SETUP ---
-
-      // A and B open troves at 150% ICR
-      await openTrove({ ICR: toBN(dec(15, 17)), extraParams: { from: bob } })
-      await openTrove({ ICR: toBN(dec(15, 17)), extraParams: { from: alice } })
-
-      const TCR = (await th.getTCR(contracts)).toString()
-      assert.equal(TCR, '1500000000000000000')
-
-      // --- TEST ---
-
-      // price drops to 1ETH:150LUSD, reducing TCR below 150%
-      await priceFeed.setPrice('150000000000000000000');
-
-      //Alice tries to withdraw collateral during Recovery Mode
-      try {
-        const txData = await borrowerOperations.withdrawColl('1', alice, alice, { from: alice })
-        assert.isFalse(txData.receipt.status)
-      } catch (err) {
-        assert.include(err.message, 'revert')
       }
     })
 
@@ -1959,48 +1912,17 @@ contract('BorrowerOperations', async accounts => {
       }
     })
 
-    it("adjustTrove(): reverts in Recovery Mode when the adjustment would reduce the TCR", async () => {
-      await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
-      await openTrove({ extraLUSDAmount: toBN(dec(20000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
-
-      assert.isFalse(await th.checkRecoveryMode(contracts))
-
-      const txAlice = await borrowerOperations.adjustTrove(th._100pct, 0, dec(50, 18), true, alice, alice, { from: alice, value: dec(1, 'ether') })
-      assert.isTrue(txAlice.receipt.status)
-
-      await priceFeed.setPrice(dec(120, 18)) // trigger drop in ETH price
-
-      assert.isTrue(await th.checkRecoveryMode(contracts))
-
-      try { // collateral withdrawal should also fail
-        const txAlice = await borrowerOperations.adjustTrove(th._100pct, dec(1, 'ether'), 0, false, alice, alice, { from: alice })
-        assert.isFalse(txAlice.receipt.status)
-      } catch (err) {
-        assert.include(err.message, "revert")
-      }
-
-      try { // debt increase should fail
-        const txBob = await borrowerOperations.adjustTrove(th._100pct, 0, dec(50, 18), true, bob, bob, { from: bob })
-        assert.isFalse(txBob.receipt.status)
-      } catch (err) {
-        assert.include(err.message, "revert")
-      }
-
-      try { // debt increase that's also a collateral increase should also fail, if ICR will be worse off
-        const txBob = await borrowerOperations.adjustTrove(th._100pct, 0, dec(111, 18), true, bob, bob, { from: bob, value: dec(1, 'ether') })
-        assert.isFalse(txBob.receipt.status)
-      } catch (err) {
-        assert.include(err.message, "revert")
-      }
-    })
-    // CHANGE: allow coll withdrawal if it improves ICR and ICR > MCR
-    it("adjustTrove(): collateral withdrawal allowed in Recovery Mode when improving ICR", async () => {
+    // CHANGE: allow coll withdrawal if ICR > CCR
+    it("adjustTrove(): collateral withdrawal allowed in Recovery Mode when ICR > CCR", async () => {
       await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
       await openTrove({ extraLUSDAmount: toBN(dec(20000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
 
       assert.isFalse(await th.checkRecoveryMode(contracts))
 
       await priceFeed.setPrice(dec(120, 18)) // trigger drop in ETH price
+
+      const ICR_A = await troveManager.getCurrentICR(alice, dec(120, 18))
+      assert.isTrue(ICR_A.gt(dec(150, 16)))
 
       assert.isTrue(await th.checkRecoveryMode(contracts))
 

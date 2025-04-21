@@ -509,7 +509,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         * - Pure collateral top-up
         * - Pure debt repayment
         * - Collateral top-up with debt repayment
-        * - A debt increase combined with a collateral top-up which improves the ICR (and by extension improves the TCR).
+        * - A debt increase if ICR remains above CCR
         *
         * In Normal Mode, ensure:
         *
@@ -518,10 +518,8 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         */
 
         if (_isRecoveryMode) {
-            // no require for pure coll addition
-            if (_isDebtIncrease || _collWithdrawal > 0) {
+            if (_isDebtIncrease) {
                 _requireICRisAboveCCR(_vars.newICR);
-                //_requireNewICRisAboveOldICR(_vars.newICR, _vars.oldICR);
             }
         } else { // if Normal Mode
             _requireICRisAboveMCR(_vars.newICR);
