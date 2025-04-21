@@ -520,8 +520,8 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         if (_isRecoveryMode) {
             // no require for pure coll addition
             if (_isDebtIncrease || _collWithdrawal > 0) {
-                _requireICRisAboveMCR(_vars.newICR);
-                _requireNewICRisAboveOldICR(_vars.newICR, _vars.oldICR);
+                _requireICRisAboveCCR(_vars.newICR);
+                //_requireNewICRisAboveOldICR(_vars.newICR, _vars.oldICR);
             }
         } else { // if Normal Mode
             _requireICRisAboveMCR(_vars.newICR);

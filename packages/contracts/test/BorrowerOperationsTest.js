@@ -2008,8 +2008,7 @@ contract('BorrowerOperations', async accounts => {
       await borrowerOperations.adjustTrove(th._100pct, 1, dec(5000, 18), false, alice, alice, { from: alice })
     })
 
-    // CHANGE: allow debt increase in recovery mode if ICR increases and gt MCR
-    it("adjustTrove(): debt increase that would leave ICR < 150% allowed in Recovery Mode", async () => {
+    it("adjustTrove(): debt increase that would leave ICR < 150% reverts in Recovery Mode", async () => {
       await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
       await openTrove({ extraLUSDAmount: toBN(dec(20000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
       const CCR = await troveManager.CCR()
@@ -2018,25 +2017,26 @@ contract('BorrowerOperations', async accounts => {
 
       await priceFeed.setPrice(dec(120, 18)) // trigger drop in ETH price
       const price = await priceFeed.getPrice()
-
+    
       assert.isTrue(await th.checkRecoveryMode(contracts))
-
+    
       const ICR_A = await troveManager.getCurrentICR(alice, price)
-
+    
       const aliceDebt = await getTroveEntireDebt(alice)
       const aliceColl = await getTroveEntireColl(alice)
       const debtIncrease = toBN(dec(50, 18))
       const collIncrease = toBN(dec(1, 'ether'))
-
+  
       // Check the new ICR would be an improvement, but less than the CCR (150%)
       const newICR = await troveManager.computeICR(aliceColl.add(collIncrease), aliceDebt.add(debtIncrease), price)
-
+  
       assert.isTrue(newICR.gt(ICR_A) && newICR.lt(CCR))
-
-      await borrowerOperations.adjustTrove(th._100pct, 0, debtIncrease, true, alice, alice, { from: alice, value: collIncrease })
+  
+      await assertRevert(borrowerOperations.adjustTrove(th._100pct, 0, debtIncrease, true, alice, alice, { from: alice, value: collIncrease }),
+        "BorrowerOps: Operation must leave trove with ICR >= CCR")
     })
 
-    it("adjustTrove(): debt increase that would reduce the ICR reverts in Recovery Mode", async () => {
+    it("adjustTrove(): debt increase that would reduce the ICR allowed in Recovery Mode", async () => {
       await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(3, 18)), extraParams: { from: alice } })
       await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
       const CCR = await troveManager.CCR()
@@ -2065,8 +2065,11 @@ contract('BorrowerOperations', async accounts => {
       // Check Alice's new ICR would reduce but still be greater than 150%
       assert.isTrue(newICR_A.lt(ICR_A) && newICR_A.gt(CCR))
 
+      await borrowerOperations.adjustTrove(th._100pct, 0, aliceDebtIncrease, true, alice, alice, { from: alice, value: aliceCollIncrease })
+      /*
       await assertRevert(borrowerOperations.adjustTrove(th._100pct, 0, aliceDebtIncrease, true, alice, alice, { from: alice, value: aliceCollIncrease }),
         "BorrowerOps: Cannot decrease your Trove's ICR in Recovery Mode")
+      */
 
       //--- Bob with ICR < 150% tries to reduce his ICR ---
 
