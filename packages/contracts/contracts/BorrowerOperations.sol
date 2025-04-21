@@ -334,9 +334,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         _requireSufficientLUSDBalance(lusdTokenCached, msg.sender, debt.sub(LUSD_GAS_COMPENSATION));
 
-        uint newTCR = _getNewTCRFromTroveChange(coll, false, debt, false, price);
-        _requireNewTCRisAboveCCR(newTCR);
-
         troveManagerCached.removeStake(msg.sender);
         troveManagerCached.closeTrove(msg.sender);
 
@@ -512,19 +509,20 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         * - Pure collateral top-up
         * - Pure debt repayment
         * - Collateral top-up with debt repayment
-        * - A debt increase combined with a collateral top-up which makes the ICR >= 150% and improves the ICR (and by extension improves the TCR).
+        * - A debt increase combined with a collateral top-up which improves the ICR (and by extension improves the TCR).
         *
         * In Normal Mode, ensure:
         *
         * - The new ICR is above MCR
         * - The adjustment won't pull the TCR below CCR
         */
+
         if (_isRecoveryMode) {
-            _requireNoCollWithdrawal(_collWithdrawal);
-            if (_isDebtIncrease) {
-                _requireICRisAboveCCR(_vars.newICR);
+            // no require for pure coll addition
+            if (_isDebtIncrease || _collWithdrawal > 0) {
+                _requireICRisAboveMCR(_vars.newICR);
                 _requireNewICRisAboveOldICR(_vars.newICR, _vars.oldICR);
-            }       
+            }
         } else { // if Normal Mode
             _requireICRisAboveMCR(_vars.newICR);
             _vars.newTCR = _getNewTCRFromTroveChange(_vars.collChange, _vars.isCollIncrease, _vars.netDebtChange, _isDebtIncrease, _vars.price);

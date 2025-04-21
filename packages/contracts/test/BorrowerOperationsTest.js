@@ -205,8 +205,8 @@ contract('BorrowerOperations', async accounts => {
     it("addColl(), active Trove: applies pending rewards and updates user's L_ETH, L_LUSDDebt snapshots", async () => {
       // --- SETUP ---
 
-      const { collateral: aliceCollBefore, totalDebt: aliceDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(15000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
-      const { collateral: bobCollBefore, totalDebt: bobDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
+      const { collateral: aliceCollBefore, totalDebt: aliceDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(15000, 18)), ICR: toBN(dec(10, 18)), extraParams: { from: alice } })
+      const { collateral: bobCollBefore, totalDebt: bobDebtBefore } = await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(10, 18)), extraParams: { from: bob } })
       await openTrove({ extraLUSDAmount: toBN(dec(5000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: carol } })
 
       // --- TEST ---
@@ -1993,8 +1993,8 @@ contract('BorrowerOperations', async accounts => {
         assert.include(err.message, "revert")
       }
     })
-
-    it("adjustTrove(): collateral withdrawal reverts in Recovery Mode", async () => {
+    // CHANGE: allow coll withdrawal if it improves ICR and ICR > MCR
+    it("adjustTrove(): collateral withdrawal allowed in Recovery Mode when improving ICR", async () => {
       await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
       await openTrove({ extraLUSDAmount: toBN(dec(20000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
 
@@ -2004,12 +2004,12 @@ contract('BorrowerOperations', async accounts => {
 
       assert.isTrue(await th.checkRecoveryMode(contracts))
 
-      // Alice attempts an adjustment that repays half her debt BUT withdraws 1 wei collateral, and fails
-      await assertRevert(borrowerOperations.adjustTrove(th._100pct, 1, dec(5000, 18), false, alice, alice, { from: alice }),
-        "BorrowerOps: Collateral withdrawal not permitted Recovery Mode")
+      // Alice attempts an adjustment that repays half her debt BUT withdraws 1 wei collateral
+      await borrowerOperations.adjustTrove(th._100pct, 1, dec(5000, 18), false, alice, alice, { from: alice })
     })
 
-    it("adjustTrove(): debt increase that would leave ICR < 150% reverts in Recovery Mode", async () => {
+    // CHANGE: allow debt increase in recovery mode if ICR increases and gt MCR
+    it("adjustTrove(): debt increase that would leave ICR < 150% allowed in Recovery Mode", async () => {
       await openTrove({ extraLUSDAmount: toBN(dec(10000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: alice } })
       await openTrove({ extraLUSDAmount: toBN(dec(20000, 18)), ICR: toBN(dec(2, 18)), extraParams: { from: bob } })
       const CCR = await troveManager.CCR()
@@ -2033,8 +2033,7 @@ contract('BorrowerOperations', async accounts => {
 
       assert.isTrue(newICR.gt(ICR_A) && newICR.lt(CCR))
 
-      await assertRevert(borrowerOperations.adjustTrove(th._100pct, 0, debtIncrease, true, alice, alice, { from: alice, value: collIncrease }),
-        "BorrowerOps: Operation must leave trove with ICR >= CCR")
+      await borrowerOperations.adjustTrove(th._100pct, 0, debtIncrease, true, alice, alice, { from: alice, value: collIncrease })
     })
 
     it("adjustTrove(): debt increase that would reduce the ICR reverts in Recovery Mode", async () => {
@@ -2607,8 +2606,8 @@ contract('BorrowerOperations', async accounts => {
     }
 
     // --- closeTrove() ---
-
-    it("closeTrove(): reverts when it would lower the TCR below CCR", async () => {
+    // CHANGE: allow closeTrove() when TCR below CCR
+    it("closeTrove(): does not revert when it would lower the TCR below CCR", async () => {
       await openTrove({ ICR: toBN(dec(300, 16)), extraParams:{ from: alice } })
       await openTrove({ ICR: toBN(dec(120, 16)), extraLUSDAmount: toBN(dec(300, 18)), extraParams:{ from: bob } })
 
@@ -2618,11 +2617,14 @@ contract('BorrowerOperations', async accounts => {
       await lusdToken.transfer(alice, dec(300, 18), { from: bob })
 
       assert.isFalse(await troveManager.checkRecoveryMode(price))
-    
+   
+      /*
       await assertRevert(
         borrowerOperations.closeTrove({ from: alice }),
         "BorrowerOps: An operation that would result in TCR < CCR is not permitted"
       )
+      */
+      await borrowerOperations.closeTrove({ from: alice })
     })
 
     it("closeTrove(): reverts when calling address does not have active trove", async () => {
