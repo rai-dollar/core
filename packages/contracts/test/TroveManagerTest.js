@@ -1494,6 +1494,11 @@ contract('TroveManager', async accounts => {
     // Price drops
     await priceFeed.setPrice(dec(100, 18))
 
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_1, dec(100, 18)) > dec(1, 18))
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_2, dec(100, 18)) > dec(1, 18))
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_3, dec(100, 18)) > dec(1, 18))
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_4, dec(100, 18)) > dec(1, 18))
+
     const TCR_Before = await th.getTCR(contracts)
 
     // Check pool has 500 LUSD
