@@ -160,16 +160,14 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         vars.price = priceFeed.fetchPrice();
         bool isRecoveryMode = _checkRecoveryMode(vars.price);
 
-        _requireValidMaxFeePercentage(_maxFeePercentage, isRecoveryMode);
+        _requireValidMaxFeePercentage(_maxFeePercentage);
         _requireTroveisNotActive(contractsCache.troveManager, msg.sender);
 
         vars.LUSDFee;
         vars.netDebt = _LUSDAmount;
 
-        if (!isRecoveryMode) {
-            vars.LUSDFee = _triggerBorrowingFee(contractsCache.troveManager, contractsCache.lusdToken, _LUSDAmount, _maxFeePercentage);
-            vars.netDebt = vars.netDebt.add(vars.LUSDFee);
-        }
+        vars.LUSDFee = _triggerBorrowingFee(contractsCache.troveManager, contractsCache.lusdToken, _LUSDAmount, _maxFeePercentage);
+        vars.netDebt = vars.netDebt.add(vars.LUSDFee);
         _requireAtLeastMinNetDebt(vars.netDebt);
 
         // ICR is based on the composite debt, i.e. the requested LUSD amount + LUSD borrowing fee + LUSD gas comp.
@@ -254,7 +252,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         bool isRecoveryMode = _checkRecoveryMode(vars.price);
 
         if (_isDebtIncrease) {
-            _requireValidMaxFeePercentage(_maxFeePercentage, isRecoveryMode);
+            _requireValidMaxFeePercentage(_maxFeePercentage);
             _requireNonZeroDebtChange(_LUSDChange);
         }
         _requireSingularCollChange(_collWithdrawal);
@@ -272,7 +270,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         vars.netDebtChange = _LUSDChange;
 
         // If the adjustment incorporates a debt increase and system is in Normal Mode, then trigger a borrowing fee
-        if (_isDebtIncrease && !isRecoveryMode) { 
+        if (_isDebtIncrease) { 
             vars.LUSDFee = _triggerBorrowingFee(contractsCache.troveManager, contractsCache.lusdToken, _LUSDChange, _maxFeePercentage);
             vars.netDebtChange = vars.netDebtChange.add(vars.LUSDFee); // The raw debt change includes the fee
         }
@@ -284,7 +282,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         vars.oldICR = LiquityMath._computeCR(vars.coll, vars.debt, vars.price);
         vars.newICR = _getNewICRFromTroveChange(vars.coll, vars.debt, vars.collChange, vars.isCollIncrease, vars.netDebtChange, _isDebtIncrease, vars.price);
         assert(_collWithdrawal <= vars.coll); 
-
         // Check the adjustment satisfies all conditions for the current system mode
         _requireValidAdjustmentInCurrentMode(isRecoveryMode, _collWithdrawal, _isDebtIncrease, vars);
             
@@ -325,7 +322,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         _requireTroveisActive(troveManagerCached, msg.sender);
         uint price = priceFeed.fetchPrice();
-        _requireNotInRecoveryMode(price);
 
         troveManagerCached.applyPendingRewards(msg.sender);
 
@@ -485,14 +481,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         require(_LUSDChange > 0, "BorrowerOps: Debt increase requires non-zero debtChange");
     }
    
-    function _requireNotInRecoveryMode(uint _price) internal view {
-        require(!_checkRecoveryMode(_price), "BorrowerOps: Operation not permitted during Recovery Mode");
-    }
-
-    function _requireNoCollWithdrawal(uint _collWithdrawal) internal pure {
-        require(_collWithdrawal == 0, "BorrowerOps: Collateral withdrawal not permitted Recovery Mode");
-    }
-
     function _requireValidAdjustmentInCurrentMode 
     (
         bool _isRecoveryMode,
@@ -517,15 +505,14 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         * - The adjustment won't pull the TCR below CCR
         */
 
-        if (_isRecoveryMode) {
-            if (_isDebtIncrease) {
-                _requireICRisAboveCCR(_vars.newICR);
-            }
-        } else { // if Normal Mode
+       if (_isRecoveryMode) {
+            _requireNewICRisAboveOldICR(_vars.newICR, _vars.oldICR);
+        } else {
             _requireICRisAboveMCR(_vars.newICR);
             _vars.newTCR = _getNewTCRFromTroveChange(_vars.collChange, _vars.isCollIncrease, _vars.netDebtChange, _isDebtIncrease, _vars.price);
-            _requireNewTCRisAboveCCR(_vars.newTCR);  
+            _requireNewTCRisAboveCCR(_vars.newTCR);
         }
+
     }
 
     function _requireICRisAboveMCR(uint _newICR) internal pure {
@@ -560,14 +547,9 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         require(_lusdToken.balanceOf(_borrower) >= _debtRepayment, "BorrowerOps: Caller doesnt have enough LUSD to make repayment");
     }
 
-    function _requireValidMaxFeePercentage(uint _maxFeePercentage, bool _isRecoveryMode) internal pure {
-        if (_isRecoveryMode) {
-            require(_maxFeePercentage <= DECIMAL_PRECISION,
-                "Max fee percentage must less than or equal to 100%");
-        } else {
-            require(_maxFeePercentage >= BORROWING_FEE_FLOOR && _maxFeePercentage <= DECIMAL_PRECISION,
-                "Max fee percentage must be between 0.5% and 100%");
-        }
+    function _requireValidMaxFeePercentage(uint _maxFeePercentage) internal pure {
+        require(_maxFeePercentage >= BORROWING_FEE_FLOOR && _maxFeePercentage <= DECIMAL_PRECISION,
+            "Max fee percentage must be between 0.5% and 100%");
     }
 
     // --- ICR and TCR getters ---
