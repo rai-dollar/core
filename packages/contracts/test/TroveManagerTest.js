@@ -2152,6 +2152,8 @@ contract('TroveManager', async accounts => {
     // Check sorted list has been reduced to length 3
     assert.equal((await sortedTroves.getSize()).toString(), '3')
 
+    //console.log((await stabilityPool.getTotalLUSDDeposits()).toString())
+    //console.log(spDeposit.sub(A_debt).sub(B_debt).toString())
     // Check Stability pool has only been reduced by A-B
     th.assertIsApproximatelyEqual((await stabilityPool.getTotalLUSDDeposits()).toString(), spDeposit.sub(A_debt).sub(B_debt))
 
