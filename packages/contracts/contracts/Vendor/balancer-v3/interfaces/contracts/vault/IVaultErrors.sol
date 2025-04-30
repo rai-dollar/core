@@ -2,8 +2,8 @@
 
 pragma solidity ^0.8.24;
 
-import {IERC4626} from "../../../dependencies/IERC4626.sol";
-import {IERC20} from "../../../dependencies/IERC20.sol";
+import {IERC4626} from "../../../dependencies/openzeppelin/contracts/interfaces/IERC4626.sol";
+import {IERC20} from "../../../dependencies/openzeppelin/contracts/interfaces/IERC20.sol";
 
 /// @notice Errors are declared inside an interface (namespace) to improve DX with Typechain.
 interface IVaultErrors {

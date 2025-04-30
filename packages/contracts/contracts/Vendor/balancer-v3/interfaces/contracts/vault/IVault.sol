@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.24;
 
-import {IAuthentication} from "../../../solidity-utils/helpers/IAuthentication.sol";
+import {IAuthentication} from "../solidity-utils/helpers/IAuthentication.sol";
 import {IVaultExtension} from "./IVaultExtension.sol";
 import {IVaultErrors} from "./IVaultErrors.sol";
 import {IVaultEvents} from "./IVaultEvents.sol";
