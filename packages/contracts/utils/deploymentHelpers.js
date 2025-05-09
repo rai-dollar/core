@@ -10,6 +10,10 @@ const CollSurplusPool = artifacts.require("./CollSurplusPool.sol")
 const FunctionCaller = artifacts.require("./TestContracts/FunctionCaller.sol")
 const BorrowerOperations = artifacts.require("./BorrowerOperations.sol")
 const HintHelpers = artifacts.require("./HintHelpers.sol")
+const ParControl = artifacts.require("./ParControl.sol")
+const RateControl = artifacts.require("./RateControl.sol")
+const Relayer = artifacts.require("./Relayer.sol")
+const MarketOracleTestnet = artifacts.require("./MarketOracleTestnet.sol")
 
 const LQTYStaking = artifacts.require("./LQTYStaking.sol")
 const LQTYToken = artifacts.require("./LQTYToken.sol")
@@ -64,7 +68,6 @@ class DeploymentHelper {
   static async deployLiquityCore() {
     const cmdLineArgs = process.argv
     const frameworkPath = cmdLineArgs[1]
-    // console.log(`Framework used:  ${frameworkPath}`)
 
     if (frameworkPath.includes("hardhat")) {
       return this.deployLiquityCoreHardhat()
@@ -76,7 +79,6 @@ class DeploymentHelper {
   static async deployLQTYContracts(bountyAddress, lpRewardsAddress, multisigAddress) {
     const cmdLineArgs = process.argv
     const frameworkPath = cmdLineArgs[1]
-    // console.log(`Framework used:  ${frameworkPath}`)
 
     if (frameworkPath.includes("hardhat")) {
       return this.deployLQTYContractsHardhat(bountyAddress, lpRewardsAddress, multisigAddress)
@@ -102,6 +104,12 @@ class DeploymentHelper {
       stabilityPool.address,
       borrowerOperations.address
     )
+
+    const relayer = await Relayer.new()
+    const marketOracleTestnet = await MarketOracleTestnet.new()
+    const parControl = await ParControl.new()
+    const rateControl = await RateControl.new()
+
     LUSDToken.setAsDeployed(lusdToken)
     DefaultPool.setAsDeployed(defaultPool)
     PriceFeedTestnet.setAsDeployed(priceFeedTestnet)
@@ -114,6 +122,10 @@ class DeploymentHelper {
     FunctionCaller.setAsDeployed(functionCaller)
     BorrowerOperations.setAsDeployed(borrowerOperations)
     HintHelpers.setAsDeployed(hintHelpers)
+    Relayer.setAsDeployed(relayer)
+    MarketOracleTestnet.setAsDeployed(marketOracleTestnet)
+    ParControl.setAsDeployed(parControl)
+    RateControl.setAsDeployed(rateControl)
 
     const coreContracts = {
       priceFeedTestnet,
@@ -127,7 +139,11 @@ class DeploymentHelper {
       collSurplusPool,
       functionCaller,
       borrowerOperations,
-      hintHelpers
+      hintHelpers,
+      relayer,
+      marketOracleTestnet,
+      parControl,
+      rateControl
     }
     return coreContracts
   }
@@ -155,6 +171,12 @@ class DeploymentHelper {
       testerContracts.stabilityPool.address,
       testerContracts.borrowerOperations.address
     )
+
+    testerContracts.relayer = await Relayer.new()
+    testerContracts.marketOracleTestnet = await MarketOracleTestnet.new()
+    testerContracts.rateControl = await RateControl.new()
+    testerContracts.parControl = await ParControl.new()
+
     return testerContracts
   }
 
@@ -350,7 +372,8 @@ class DeploymentHelper {
       contracts.lusdToken.address,
       contracts.sortedTroves.address,
       LQTYContracts.lqtyToken.address,
-      LQTYContracts.lqtyStaking.address
+      LQTYContracts.lqtyStaking.address,
+      contracts.relayer.address
     )
 
     // set contracts in BorrowerOperations 
@@ -400,6 +423,21 @@ class DeploymentHelper {
     await contracts.hintHelpers.setAddresses(
       contracts.sortedTroves.address,
       contracts.troveManager.address
+    )
+      
+    await contracts.relayer.setAddresses(
+      contracts.parControl.address,
+      contracts.rateControl.address,
+      contracts.marketOracleTestnet.address,
+      contracts.troveManager.address
+    )
+
+    await contracts.parControl.setAddresses(
+      contracts.relayer.address
+    )
+
+    await contracts.rateControl.setAddresses(
+      contracts.relayer.address
     )
   }
 
