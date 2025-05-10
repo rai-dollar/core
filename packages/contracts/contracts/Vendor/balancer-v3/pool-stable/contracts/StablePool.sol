@@ -2,21 +2,21 @@
 
 pragma solidity ^0.8.24;
 
-import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {SafeCast} from "../../dependencies/openzeppelin/contracts/utils/SafeCast.sol";
 
-import {ISwapFeePercentageBounds} from "@balancer-labs/v3-interfaces/contracts/vault/ISwapFeePercentageBounds.sol";
-import {IUnbalancedLiquidityInvariantRatioBounds} from "@balancer-labs/v3-interfaces/contracts/vault/IUnbalancedLiquidityInvariantRatioBounds.sol";
-import {IBasePool} from "@balancer-labs/v3-interfaces/contracts/vault/IBasePool.sol";
-import {IVault} from "@balancer-labs/v3-interfaces/contracts/vault/IVault.sol";
-import {IStablePool, StablePoolDynamicData, StablePoolImmutableData, AmplificationState} from "@balancer-labs/v3-interfaces/contracts/pool-stable/IStablePool.sol";
-import "@balancer-labs/v3-interfaces/contracts/vault/VaultTypes.sol";
+import {ISwapFeePercentageBounds} from "../../interfaces/contracts/vault/ISwapFeePercentageBounds.sol";
+import {IUnbalancedLiquidityInvariantRatioBounds} from "../../interfaces/contracts/vault/IUnbalancedLiquidityInvariantRatioBounds.sol";
+import {IBasePool} from "../../interfaces/contracts/vault/IBasePool.sol";
+import {IVault} from "../../interfaces/contracts/vault/IVault.sol";
+import {IStablePool, StablePoolDynamicData, StablePoolImmutableData, AmplificationState} from "../../interfaces/contracts/pool-stable/IStablePool.sol";
+import "../../interfaces/contracts/vault/VaultTypes.sol";
 
-import {BasePoolAuthentication} from "@balancer-labs/v3-pool-utils/contracts/BasePoolAuthentication.sol";
-import {BalancerPoolToken} from "@balancer-labs/v3-vault/contracts/BalancerPoolToken.sol";
-import {FixedPoint} from "@balancer-labs/v3-solidity-utils/contracts/math/FixedPoint.sol";
-import {StableMath} from "@balancer-labs/v3-solidity-utils/contracts/math/StableMath.sol";
-import {Version} from "@balancer-labs/v3-solidity-utils/contracts/helpers/Version.sol";
-import {PoolInfo} from "@balancer-labs/v3-pool-utils/contracts/PoolInfo.sol";
+import {BasePoolAuthentication} from "../../pool-utils/contracts/BasePoolAuthentication.sol";
+import {BalancerPoolToken} from "../../vault/contracts/BalancerPoolToken.sol";
+import {FixedPoint} from "../../solidity-utils/contracts/math/FixedPoint.sol";
+import {StableMath} from "../../solidity-utils/contracts/math/StableMath.sol";
+import {Version} from "../../solidity-utils/contracts/helpers/Version.sol";
+import {PoolInfo} from "../../pool-utils/contracts/PoolInfo.sol";
 
 /**
  * @notice Standard Balancer Stable Pool.
