@@ -9,6 +9,7 @@ import "./Interfaces/ILUSDToken.sol";
 import "./Interfaces/ISortedTroves.sol";
 import "./Interfaces/ILQTYToken.sol";
 import "./Interfaces/ILQTYStaking.sol";
+import "./Interfaces/IRelayer.sol";
 import "./Dependencies/LiquityBase.sol";
 import "./Dependencies/Ownable.sol";
 import "./Dependencies/CheckContract.sol";
@@ -35,6 +36,8 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
     // A doubly linked list of Troves, sorted by their sorted by their collateral ratios
     ISortedTroves public sortedTroves;
+
+    IRelayer public relayer;
 
     // --- Data structures ---
 
@@ -122,7 +125,6 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
     struct LocalVariables_OuterLiquidationFunction {
         uint price;
         uint LUSDInSPForOffsets;
-        bool recoveryModeAtStart;
         uint liquidatedDebt;
         uint liquidatedColl;
     }
@@ -208,6 +210,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
     event SortedTrovesAddressChanged(address _sortedTrovesAddress);
     event LQTYTokenAddressChanged(address _lqtyTokenAddress);
     event LQTYStakingAddressChanged(address _lqtyStakingAddress);
+    event RelayerAddressChanged(address _relayerAddress);
 
     event Liquidation(uint _liquidatedDebt, uint _liquidatedColl, uint _collGasCompensation, uint _LUSDGasCompensation);
     event Redemption(uint _attemptedLUSDAmount, uint _actualLUSDAmount, uint _ETHSent, uint _ETHFee);
@@ -223,8 +226,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
      enum TroveManagerOperation {
         applyPendingRewards,
-        liquidateInNormalMode,
-        liquidateInRecoveryMode,
+        liquidate,
         redeemCollateral
     }
 
@@ -242,7 +244,8 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         address _lusdTokenAddress,
         address _sortedTrovesAddress,
         address _lqtyTokenAddress,
-        address _lqtyStakingAddress
+        address _lqtyStakingAddress,
+        address _relayerAddress
     )
         external
         override
@@ -259,6 +262,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         checkContract(_sortedTrovesAddress);
         checkContract(_lqtyTokenAddress);
         checkContract(_lqtyStakingAddress);
+        checkContract(_relayerAddress);
 
         borrowerOperationsAddress = _borrowerOperationsAddress;
         activePool = IActivePool(_activePoolAddress);
@@ -271,6 +275,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         sortedTroves = ISortedTroves(_sortedTrovesAddress);
         lqtyToken = ILQTYToken(_lqtyTokenAddress);
         lqtyStaking = ILQTYStaking(_lqtyStakingAddress);
+        relayer = IRelayer(_relayerAddress);
 
         emit BorrowerOperationsAddressChanged(_borrowerOperationsAddress);
         emit ActivePoolAddressChanged(_activePoolAddress);
@@ -283,6 +288,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         emit SortedTrovesAddressChanged(_sortedTrovesAddress);
         emit LQTYTokenAddressChanged(_lqtyTokenAddress);
         emit LQTYStakingAddressChanged(_lqtyStakingAddress);
+        emit RelayerAddressChanged(_relayerAddress);
 
         _renounceOwnership();
     }
@@ -321,6 +327,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         returns (LiquidationValues memory singleLiquidation)
     {
         LocalVariables_InnerSingleLiquidateFunction memory vars;
+        if (TroveOwners.length <= 1) {return singleLiquidation;} // don't liquidate if last trove
 
         (singleLiquidation.entireTroveDebt,
         singleLiquidation.entireTroveColl,
@@ -340,88 +347,8 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         singleLiquidation.collToRedistribute) = _getOffsetAndRedistributionVals(singleLiquidation.entireTroveDebt, collToLiquidate, _LUSDInSPForOffsets);
 
         _closeTrove(_borrower, Status.closedByLiquidation);
-        emit TroveLiquidated(_borrower, singleLiquidation.entireTroveDebt, singleLiquidation.entireTroveColl, TroveManagerOperation.liquidateInNormalMode);
-        emit TroveUpdated(_borrower, 0, 0, 0, TroveManagerOperation.liquidateInNormalMode);
-        return singleLiquidation;
-    }
-
-    // Liquidate one trove, in Recovery Mode.
-    function _liquidateRecoveryMode(
-        IActivePool _activePool,
-        IDefaultPool _defaultPool,
-        address _borrower,
-        uint _ICR,
-        uint _LUSDInSPForOffsets,
-        uint _TCR,
-        uint _price
-    )
-        internal
-        returns (LiquidationValues memory singleLiquidation)
-    {
-        LocalVariables_InnerSingleLiquidateFunction memory vars;
-        if (TroveOwners.length <= 1) {return singleLiquidation;} // don't liquidate if last trove
-        (singleLiquidation.entireTroveDebt,
-        singleLiquidation.entireTroveColl,
-        vars.pendingDebtReward,
-        vars.pendingCollReward) = getEntireDebtAndColl(_borrower);
-
-        singleLiquidation.collGasCompensation = _getCollGasCompensation(singleLiquidation.entireTroveColl);
-        singleLiquidation.LUSDGasCompensation = LUSD_GAS_COMPENSATION;
-        vars.collToLiquidate = singleLiquidation.entireTroveColl.sub(singleLiquidation.collGasCompensation);
-
-        // If ICR <= 100%, purely redistribute the Trove across all active Troves
-        if (_ICR <= _100pct) {
-            _movePendingTroveRewardsToActivePool(_activePool, _defaultPool, vars.pendingDebtReward, vars.pendingCollReward);
-            _removeStake(_borrower);
-           
-            singleLiquidation.debtToOffset = 0;
-            singleLiquidation.collToSendToSP = 0;
-            singleLiquidation.debtToRedistribute = singleLiquidation.entireTroveDebt;
-            singleLiquidation.collToRedistribute = vars.collToLiquidate;
-
-            _closeTrove(_borrower, Status.closedByLiquidation);
-            emit TroveLiquidated(_borrower, singleLiquidation.entireTroveDebt, singleLiquidation.entireTroveColl, TroveManagerOperation.liquidateInRecoveryMode);
-            emit TroveUpdated(_borrower, 0, 0, 0, TroveManagerOperation.liquidateInRecoveryMode);
-            
-        // If 100% < ICR < MCR, offset as much as possible, and redistribute the remainder
-        } else if ((_ICR > _100pct) && (_ICR < MCR)) {
-             _movePendingTroveRewardsToActivePool(_activePool, _defaultPool, vars.pendingDebtReward, vars.pendingCollReward);
-            _removeStake(_borrower);
-
-            (singleLiquidation.debtToOffset,
-            singleLiquidation.collToSendToSP,
-            singleLiquidation.debtToRedistribute,
-            singleLiquidation.collToRedistribute) = _getOffsetAndRedistributionVals(singleLiquidation.entireTroveDebt, vars.collToLiquidate, _LUSDInSPForOffsets);
-
-            _closeTrove(_borrower, Status.closedByLiquidation);
-            emit TroveLiquidated(_borrower, singleLiquidation.entireTroveDebt, singleLiquidation.entireTroveColl, TroveManagerOperation.liquidateInRecoveryMode);
-            emit TroveUpdated(_borrower, 0, 0, 0, TroveManagerOperation.liquidateInRecoveryMode);
-        /*
-        * If 110% <= ICR < current TCR (accounting for the preceding liquidations in the current sequence)
-        * and there is LUSD in the Stability Pool, only offset, with no redistribution,
-        * but at a capped rate of 1.1 and only if the whole debt can be liquidated.
-        * The remainder due to the capped rate will be claimable as collateral surplus.
-        */
-        } else if ((_ICR >= MCR) && (_ICR < _TCR) && (singleLiquidation.entireTroveDebt <= _LUSDInSPForOffsets)) {
-            _movePendingTroveRewardsToActivePool(_activePool, _defaultPool, vars.pendingDebtReward, vars.pendingCollReward);
-            assert(_LUSDInSPForOffsets != 0);
-
-            _removeStake(_borrower);
-            singleLiquidation = _getCappedOffsetVals(singleLiquidation.entireTroveDebt, singleLiquidation.entireTroveColl, _price);
-
-            _closeTrove(_borrower, Status.closedByLiquidation);
-            if (singleLiquidation.collSurplus > 0) {
-                collSurplusPool.accountSurplus(_borrower, singleLiquidation.collSurplus);
-            }
-
-            emit TroveLiquidated(_borrower, singleLiquidation.entireTroveDebt, singleLiquidation.collToSendToSP, TroveManagerOperation.liquidateInRecoveryMode);
-            emit TroveUpdated(_borrower, 0, 0, 0, TroveManagerOperation.liquidateInRecoveryMode);
-
-        } else { // if (_ICR >= MCR && ( _ICR >= _TCR || singleLiquidation.entireTroveDebt > _LUSDInSPForOffsets))
-            LiquidationValues memory zeroVals;
-            return zeroVals;
-        }
-
+        emit TroveLiquidated(_borrower, singleLiquidation.entireTroveDebt, singleLiquidation.entireTroveColl, TroveManagerOperation.liquidate);
+        emit TroveUpdated(_borrower, 0, 0, 0, TroveManagerOperation.liquidate);
         return singleLiquidation;
     }
 
@@ -510,14 +437,9 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         vars.price = priceFeed.fetchPrice();
         vars.LUSDInSPForOffsets = stabilityPoolCached.getMaxAmountToOffset();
-        vars.recoveryModeAtStart = _checkRecoveryMode(vars.price);
 
-        // Perform the appropriate liquidation sequence - tally the values, and obtain their totals
-        if (vars.recoveryModeAtStart) {
-            totals = _getTotalsFromLiquidateTrovesSequence_RecoveryMode(contractsCache, vars.price, vars.LUSDInSPForOffsets, _n);
-        } else { // if !vars.recoveryModeAtStart
-            totals = _getTotalsFromLiquidateTrovesSequence_NormalMode(contractsCache.activePool, contractsCache.defaultPool, vars.price, vars.LUSDInSPForOffsets, _n);
-        }
+        // Perform the liquidation sequence - tally the values, and obtain their totals
+        totals = _getTotalsFromLiquidateTrovesSequence_NormalMode(contractsCache.activePool, contractsCache.defaultPool, vars.price, vars.LUSDInSPForOffsets, _n);
 
         require(totals.totalDebtInSequence > 0, "TroveManager: nothing to liquidate");
 
@@ -537,71 +459,6 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         // Send gas compensation to caller
         _sendGasCompensation(contractsCache.activePool, msg.sender, totals.totalLUSDGasCompensation, totals.totalCollGasCompensation);
-    }
-
-    /*
-    * This function is used when the liquidateTroves sequence starts during Recovery Mode. However, it
-    * handle the case where the system *leaves* Recovery Mode, part way through the liquidation sequence
-    */
-    function _getTotalsFromLiquidateTrovesSequence_RecoveryMode
-    (
-        ContractsCache memory _contractsCache,
-        uint _price,
-        uint _LUSDInSPForOffsets,
-        uint _n
-    )
-        internal
-        returns(LiquidationTotals memory totals)
-    {
-        LocalVariables_LiquidationSequence memory vars;
-        LiquidationValues memory singleLiquidation;
-
-        vars.remainingLUSDInSPForOffsets = _LUSDInSPForOffsets;
-        vars.backToNormalMode = false;
-        vars.entireSystemDebt = getEntireSystemDebt();
-        vars.entireSystemColl = getEntireSystemColl();
-
-        vars.user = _contractsCache.sortedTroves.getLast();
-        address firstUser = _contractsCache.sortedTroves.getFirst();
-        for (vars.i = 0; vars.i < _n && vars.user != firstUser; vars.i++) {
-            // we need to cache it, because current user is likely going to be deleted
-            address nextUser = _contractsCache.sortedTroves.getPrev(vars.user);
-
-            vars.ICR = getCurrentICR(vars.user, _price);
-
-            if (!vars.backToNormalMode) {
-                // Break the loop if ICR is greater than MCR and Stability Pool is empty
-                if (vars.ICR >= MCR && vars.remainingLUSDInSPForOffsets == 0) { break; }
-
-                uint TCR = LiquityMath._computeCR(vars.entireSystemColl, vars.entireSystemDebt, _price);
-
-                singleLiquidation = _liquidateRecoveryMode(_contractsCache.activePool, _contractsCache.defaultPool, vars.user, vars.ICR, vars.remainingLUSDInSPForOffsets, TCR, _price);
-
-                // Update aggregate trackers
-                vars.remainingLUSDInSPForOffsets = vars.remainingLUSDInSPForOffsets.sub(singleLiquidation.debtToOffset);
-                vars.entireSystemDebt = vars.entireSystemDebt.sub(singleLiquidation.debtToOffset);
-                vars.entireSystemColl = vars.entireSystemColl.
-                    sub(singleLiquidation.collToSendToSP).
-                    sub(singleLiquidation.collGasCompensation).
-                    sub(singleLiquidation.collSurplus);
-
-                // Add liquidation values to their respective running totals
-                totals = _addLiquidationValuesToTotals(totals, singleLiquidation);
-
-                vars.backToNormalMode = !_checkPotentialRecoveryMode(vars.entireSystemColl, vars.entireSystemDebt, _price);
-            }
-            else if (vars.backToNormalMode && vars.ICR < MCR) {
-                singleLiquidation = _liquidateNormalMode(_contractsCache.activePool, _contractsCache.defaultPool, vars.user, vars.remainingLUSDInSPForOffsets);
-
-                vars.remainingLUSDInSPForOffsets = vars.remainingLUSDInSPForOffsets.sub(singleLiquidation.debtToOffset);
-
-                // Add liquidation values to their respective running totals
-                totals = _addLiquidationValuesToTotals(totals, singleLiquidation);
-
-            }  else break;  // break if the loop reaches a Trove with ICR >= MCR
-
-            vars.user = nextUser;
-        }
     }
 
     function _getTotalsFromLiquidateTrovesSequence_NormalMode
@@ -627,7 +484,6 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
             if (vars.ICR < MCR) {
                 singleLiquidation = _liquidateNormalMode(_activePool, _defaultPool, vars.user, vars.remainingLUSDInSPForOffsets);
-
                 vars.remainingLUSDInSPForOffsets = vars.remainingLUSDInSPForOffsets.sub(singleLiquidation.debtToOffset);
 
                 // Add liquidation values to their respective running totals
@@ -652,14 +508,8 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         vars.price = priceFeed.fetchPrice();
         vars.LUSDInSPForOffsets = stabilityPoolCached.getMaxAmountToOffset();
-        vars.recoveryModeAtStart = _checkRecoveryMode(vars.price);
 
-        // Perform the appropriate liquidation sequence - tally values and obtain their totals.
-        if (vars.recoveryModeAtStart) {
-            totals = _getTotalFromBatchLiquidate_RecoveryMode(activePoolCached, defaultPoolCached, vars.price, vars.LUSDInSPForOffsets, _troveArray);
-        } else {  //  if !vars.recoveryModeAtStart
-            totals = _getTotalsFromBatchLiquidate_NormalMode(activePoolCached, defaultPoolCached, vars.price, vars.LUSDInSPForOffsets, _troveArray);
-        }
+        totals = _getTotalsFromBatchLiquidate_NormalMode(activePoolCached, defaultPoolCached, vars.price, vars.LUSDInSPForOffsets, _troveArray);
 
         require(totals.totalDebtInSequence > 0, "TroveManager: nothing to liquidate");
 
@@ -679,69 +529,6 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         // Send gas compensation to caller
         _sendGasCompensation(activePoolCached, msg.sender, totals.totalLUSDGasCompensation, totals.totalCollGasCompensation);
-    }
-
-    /*
-    * This function is used when the batch liquidation sequence starts during Recovery Mode. However, it
-    * handle the case where the system *leaves* Recovery Mode, part way through the liquidation sequence
-    */
-    function _getTotalFromBatchLiquidate_RecoveryMode
-    (
-        IActivePool _activePool,
-        IDefaultPool _defaultPool,
-        uint _price,
-        uint _LUSDInSPForOffsets,
-        address[] memory _troveArray
-    )
-        internal
-        returns(LiquidationTotals memory totals)
-    {
-        LocalVariables_LiquidationSequence memory vars;
-        LiquidationValues memory singleLiquidation;
-
-        vars.remainingLUSDInSPForOffsets = _LUSDInSPForOffsets;
-        vars.backToNormalMode = false;
-        vars.entireSystemDebt = getEntireSystemDebt();
-        vars.entireSystemColl = getEntireSystemColl();
-
-        for (vars.i = 0; vars.i < _troveArray.length; vars.i++) {
-            vars.user = _troveArray[vars.i];
-            // Skip non-active troves
-            if (Troves[vars.user].status != Status.active) { continue; }
-            vars.ICR = getCurrentICR(vars.user, _price);
-
-            if (!vars.backToNormalMode) {
-
-                // Skip this trove if ICR is greater than MCR and Stability Pool is empty
-                if (vars.ICR >= MCR && vars.remainingLUSDInSPForOffsets == 0) { continue; }
-
-                uint TCR = LiquityMath._computeCR(vars.entireSystemColl, vars.entireSystemDebt, _price);
-
-                singleLiquidation = _liquidateRecoveryMode(_activePool, _defaultPool, vars.user, vars.ICR, vars.remainingLUSDInSPForOffsets, TCR, _price);
-
-                // Update aggregate trackers
-                vars.remainingLUSDInSPForOffsets = vars.remainingLUSDInSPForOffsets.sub(singleLiquidation.debtToOffset);
-                vars.entireSystemDebt = vars.entireSystemDebt.sub(singleLiquidation.debtToOffset);
-                vars.entireSystemColl = vars.entireSystemColl.
-                    sub(singleLiquidation.collToSendToSP).
-                    sub(singleLiquidation.collGasCompensation).
-                    sub(singleLiquidation.collSurplus);
-
-                // Add liquidation values to their respective running totals
-                totals = _addLiquidationValuesToTotals(totals, singleLiquidation);
-
-                vars.backToNormalMode = !_checkPotentialRecoveryMode(vars.entireSystemColl, vars.entireSystemDebt, _price);
-            }
-
-            else if (vars.backToNormalMode && vars.ICR < MCR) {
-                singleLiquidation = _liquidateNormalMode(_activePool, _defaultPool, vars.user, vars.remainingLUSDInSPForOffsets);
-                vars.remainingLUSDInSPForOffsets = vars.remainingLUSDInSPForOffsets.sub(singleLiquidation.debtToOffset);
-
-                // Add liquidation values to their respective running totals
-                totals = _addLiquidationValuesToTotals(totals, singleLiquidation);
-
-            } else continue; // In Normal Mode skip troves with ICR >= MCR
-        }
     }
 
     function _getTotalsFromBatchLiquidate_NormalMode
@@ -1331,7 +1118,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
     function checkRecoveryMode(uint _price) external view override returns (bool) {
         return _checkRecoveryMode(_price);
     }
-
+    
     // Check whether or not the system *would be* in Recovery Mode, given an ETH:USD price, and the entire system coll and debt.
     function _checkPotentialRecoveryMode(
         uint _entireSystemColl,

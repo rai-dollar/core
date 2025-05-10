@@ -1494,6 +1494,11 @@ contract('TroveManager', async accounts => {
     // Price drops
     await priceFeed.setPrice(dec(100, 18))
 
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_1, dec(100, 18)) > dec(1, 18))
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_2, dec(100, 18)) > dec(1, 18))
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_3, dec(100, 18)) > dec(1, 18))
+    assert.isTrue(await troveManager.getCurrentICR(defaulter_4, dec(100, 18)) > dec(1, 18))
+
     const TCR_Before = await th.getTCR(contracts)
 
     // Check pool has 500 LUSD
@@ -2147,6 +2152,8 @@ contract('TroveManager', async accounts => {
     // Check sorted list has been reduced to length 3
     assert.equal((await sortedTroves.getSize()).toString(), '3')
 
+    //console.log((await stabilityPool.getTotalLUSDDeposits()).toString())
+    //console.log(spDeposit.sub(A_debt).sub(B_debt).toString())
     // Check Stability pool has only been reduced by A-B
     th.assertIsApproximatelyEqual((await stabilityPool.getTotalLUSDDeposits()).toString(), spDeposit.sub(A_debt).sub(B_debt))
 
