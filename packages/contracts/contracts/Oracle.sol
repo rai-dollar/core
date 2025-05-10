@@ -2,13 +2,13 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "./Vendor/balancer-v3/dependencies/openzeppelin/contracts/interfaces/IERC20.sol";
 
+import {Arrays} from "./Vendor/balancer-v3/dependencies/openzeppelin/contracts/utils/Arrays.sol";
+
 import {BaseHooks} from "./Vendor/balancer-v3/vault/contracts/BaseHooks.sol";
 
 import {IHooks} from "./Vendor/balancer-v3/interfaces/contracts/vault/IHooks.sol";
 import {IVault} from "./Vendor/balancer-v3/interfaces/contracts/vault/IVault.sol";
 import {IAggregatorRouter} from "./Vendor/balancer-v3/interfaces/contracts/vault/IAggregatorRouter.sol";
-
-import {AggregatorV3Interface} from "./Vendor/balancer-v3/dependencies/chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 import {VaultGuard} from "./Vendor/balancer-v3/vault/contracts/VaultGuard.sol";
 import {HookFlags, TokenConfig, LiquidityManagement, AfterSwapParams} from "./Vendor/balancer-v3/interfaces/contracts/vault/VaultTypes.sol";
@@ -24,6 +24,7 @@ import {IOracle} from "./Interfaces/IOracle.sol";
 
 contract Oracle is IOracle, BaseHooks, VaultGuard {
     using FixedPoint for uint256;
+    using Arrays for uint256[];
 
     /// @inheritdoc IOracle
     uint256 public constant WAD = 1e18;
@@ -112,7 +113,7 @@ contract Oracle is IOracle, BaseHooks, VaultGuard {
      * @param  _lastBalancesWad The last balances of the pool
      * @return _syntheticRDPriceWad The instantaneous synthetic RD price
      */
-    function _calculateInstantaneousSyntheticRDPrice(
+    function _calculateInstantaneousSyntheticRDPriceWeightedAverage(
         uint256[] memory _lastBalancesWad
     ) internal view returns (uint256 _syntheticRDPriceWad) {
         StablePool _pool = StablePool(pool);
@@ -177,6 +178,90 @@ contract Oracle is IOracle, BaseHooks, VaultGuard {
 
         // Average price of the stablecoin basket unit, measured in RD
         uint256 _avgBasketPriceInRD = _weightedSumStablePriceInRD.divDown(_totalStableBalanceWad);
+    }
+
+    /**
+     * @notice Get the instantaneous synthetic RD price
+     * @param  _lastBalancesWad The last balances of the pool
+     * @return _syntheticRDPriceWad The instantaneous synthetic RD price
+     */
+    function _calculateInstantaneousSyntheticRDPrice(
+        uint256[] memory _lastBalancesWad
+    ) internal view returns (uint256 _syntheticRDPriceWad) {
+        StablePool _pool = StablePool(pool);
+        uint256 _numBalances = _lastBalancesWad.length;
+        (uint256 _ampValue, , uint256 _ampPrecision) = _pool.getAmplificationParameter();
+        uint256 _poolInvariant = _pool.computeInvariant(_lastBalancesWad, Rounding.ROUND_UP);
+        uint256 _ampCoefficient = (_numBalances ** _numBalances) * _ampValue;
+
+        uint256 _balancesSum;
+        for (uint256 _i = 0; _i < _numBalances; _i++) {
+            _balancesSum += _lastBalancesWad[_i];
+        }
+
+        // Calculate partial derivative for RD
+        uint256 _derivativeRD = _calculatePartialDerivative(
+            _lastBalancesWad[rdTokenIndex],
+            _ampCoefficient,
+            _poolInvariant,
+            _balancesSum,
+            _ampPrecision
+        );
+
+        uint256[] memory _stablePricesInRD = new uint256[](stablecoinBasket.length);
+
+        for (uint256 _i = 0; _i < stablecoinBasket.length; _i++) {
+            uint8 _stableIndex = _stablecoinBasketIndices[_i];
+            uint256 _stableBalanceWad = _lastBalancesWad[_stableIndex];
+
+            // Calculate partial derivative for this stablecoin
+            uint256 _derivativeStablecoin = _calculatePartialDerivative(
+                _stableBalanceWad,
+                _ampCoefficient,
+                _poolInvariant,
+                _balancesSum,
+                _ampPrecision
+            );
+
+            if (_derivativeStablecoin == 0) {
+                revert Oracle_DivisionByZero();
+            }
+
+            // Price of stablecoin _i in terms of RD = _derivativeRD / _derivativeStablecoin
+            uint256 _priceStableInRD = _derivativeRD.divDown(_derivativeStablecoin);
+
+            _stablePricesInRD[_i] = _priceStableInRD;
+        }
+
+        uint256 _medianBasketPriceInRD = _calculateMedian(_stablePricesInRD);
+
+        if (_medianBasketPriceInRD == 0) {
+            revert Oracle_DivisionByZero();
+        }
+
+        // Synthetic Price RD/USD = 1 / medianBasketPriceInRD
+        // Use WAD * WAD / x for 1/x equivalent, preserves WAD scaling
+        _syntheticRDPriceWad = WAD.mulDown(WAD).divDown(_medianBasketPriceInRD);
+    }
+
+    /**
+     * @notice Calculates the median of an array of uint256 values.
+     * @param _arr An array of WAD-scaled prices.
+     * @return The median value. For an even number of elements, returns the lower of the two middle elements.
+     */
+    function _calculateMedian(uint256[] memory _arr) internal pure returns (uint256) {
+        uint256 _n = _arr.length;
+
+        if (_n == 0) {
+            revert Oracle_MedianCalculationError();
+        }
+        if (_n == 1) {
+            return _arr[0];
+        }
+
+        _arr.sort();
+
+        return _arr[(n - 1) / 2];
     }
 
     /**

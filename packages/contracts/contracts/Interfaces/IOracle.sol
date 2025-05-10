@@ -25,6 +25,11 @@ interface IOracle {
      */
     error Oracle_DivisionByZero();
 
+    /**
+     * @notice Error thrown when trying to calculate the median of an empty array
+     */
+    error Oracle_MedianCalculationError();
+
     // --- Registry ---
 
     /**
