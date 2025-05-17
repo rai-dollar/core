@@ -145,7 +145,7 @@ interface IStabilityPool {
      * and transfers the Trove's ETH collateral from ActivePool to StabilityPool.
      * Only called by liquidation functions in the TroveManager.
      */
-    function offset(uint _debt, uint _coll) external;
+    function offset(uint _debt, uint _nDebt, uint _coll) external;
 
     /*
      * Returns the total amount of ETH held by the pool, accounted in an internal variable instead of `balance`,

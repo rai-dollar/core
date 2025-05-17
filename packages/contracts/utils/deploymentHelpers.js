@@ -387,7 +387,8 @@ class DeploymentHelper {
       contracts.priceFeedTestnet.address,
       contracts.sortedTroves.address,
       contracts.lusdToken.address,
-      LQTYContracts.lqtyStaking.address
+      LQTYContracts.lqtyStaking.address,
+      contracts.relayer.address,
     )
 
     // set contracts in the Pools
@@ -429,7 +430,8 @@ class DeploymentHelper {
       contracts.parControl.address,
       contracts.rateControl.address,
       contracts.marketOracleTestnet.address,
-      contracts.troveManager.address
+      contracts.troveManager.address,
+      contracts.borrowerOperations.address
     )
 
     await contracts.parControl.setAddresses(

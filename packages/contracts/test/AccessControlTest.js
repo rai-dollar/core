@@ -327,7 +327,7 @@ contract('Access Control: Liquity functions with the caller restricted to Liquit
     it("offset(): reverts when called by an account that is not TroveManager", async () => {
       // Attempt call from alice
       try {
-        txAlice = await stabilityPool.offset(100, 10, { from: alice })
+        txAlice = await stabilityPool.offset(100, 100, 10, { from: alice })
         assert.fail(txAlice)
       } catch (err) {
         assert.include(err.message, "revert")

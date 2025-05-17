@@ -61,6 +61,8 @@ interface ITroveManager is ILiquityBase {
     function lqtyToken() external view returns (ILQTYToken);
     function lqtyStaking() external view returns (ILQTYStaking);
 
+    function accumulatedRate() external view returns (uint);
+
     function getTroveOwnersCount() external view returns (uint);
 
     function getTroveFromTroveOwnersArray(uint _index) external view returns (address);

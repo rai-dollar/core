@@ -250,6 +250,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     event LQTYPaidToDepositor(address indexed _depositor, uint _LQTY);
     event LQTYPaidToFrontEnd(address indexed _frontEnd, uint _LQTY);
     event EtherSent(address _to, uint _amount);
+    event DistributeToSP(uint _amount);
 
     // --- Contract setters ---
 
@@ -511,7 +512,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     * and transfers the Trove's ETH collateral from ActivePool to StabilityPool.
     * Only called by liquidation functions in the TroveManager.
     */
-    function offset(uint _debtToOffset, uint _collToAdd) external override {
+    function offset(uint _debtToOffset, uint _nDebtToOffset, uint _collToAdd) external override {
         _requireCallerIsTroveManager();
         uint totalLUSD = totalLUSDDeposits; // cached to save an SLOAD
         if (totalLUSD == 0 || _debtToOffset == 0) { return; }
@@ -523,7 +524,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
         _updateRewardSumAndProduct(ETHGainPerUnitStaked, LUSDLossPerUnitStaked);  // updates S and P
 
-        _moveOffsetCollAndDebt(_collToAdd, _debtToOffset);
+        _moveOffsetCollAndDebt(_collToAdd, _debtToOffset, _nDebtToOffset);
     }
 
     // --- Offset helper functions ---
@@ -625,11 +626,11 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         emit P_Updated(newP);
     }
 
-    function _moveOffsetCollAndDebt(uint _collToAdd, uint _debtToOffset) internal {
+    function _moveOffsetCollAndDebt(uint _collToAdd, uint _debtToOffset, uint _nDebtToOffset) internal {
         IActivePool activePoolCached = activePool;
 
         // Cancel the liquidated LUSD debt with the LUSD in the stability pool
-        activePoolCached.decreaseLUSDDebt(_debtToOffset);
+        activePoolCached.decreaseLUSDDebt(_nDebtToOffset);
         _decreaseLUSD(_debtToOffset);
 
         // Burn the debt that was successfully offset
@@ -989,5 +990,27 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         _requireCallerIsActivePool();
         ETH = ETH.add(msg.value);
         StabilityPoolETHBalanceUpdated(ETH);
+    }
+
+    function distributeToSP(uint256 lusdGain) external override {
+        _requireCallerIsTroveManager();
+        if (lusdGain == 0) return;
+
+        require(totalLUSDDeposits > 0, "StabilityPool: can't distribute when totalLUSDDeposits == 0");
+
+        uint256 lusdGainPerUnitStaked = (lusdGain * 1e18) / totalLUSDDeposits + 1;
+
+        totalLUSDDeposits += lusdGain;
+
+        uint256 currentP = P;
+        uint256 newProductFactor = 1e18 + lusdGainPerUnitStaked;
+
+        uint256 newP = (currentP * newProductFactor) / 1e18;
+        require(newP > 0, "New P must be > 0");
+
+        P = newP;
+
+        emit P_Updated(newP);
+        emit DistributeToSP(lusdGain);
     }
 }

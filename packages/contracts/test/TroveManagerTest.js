@@ -73,6 +73,7 @@ contract('TroveManager', async accounts => {
     collSurplusPool = contracts.collSurplusPool
     borrowerOperations = contracts.borrowerOperations
     hintHelpers = contracts.hintHelpers
+    relayer = contracts.relayer
 
     lqtyStaking = LQTYContracts.lqtyStaking
     lqtyToken = LQTYContracts.lqtyToken
@@ -90,6 +91,9 @@ contract('TroveManager', async accounts => {
 
     const price = await priceFeed.getPrice()
     const ICR_Before = await troveManager.getCurrentICR(alice, price)
+
+    assert.equal(dec(1, 18), await relayer.par())
+
     assert.equal(ICR_Before, dec(4, 18))
 
     const MCR = (await troveManager.MCR()).toString()
@@ -395,6 +399,7 @@ contract('TroveManager', async accounts => {
 
     const alice_ICR = (await troveManager.getCurrentICR(alice, price)).toString()
     assert.equal(alice_ICR, '1050000000000000000')
+    assert.isTrue((await troveManager.getCurrentICR(alice, price)).lte(mv._MCR))
 
     const activeTrovesCount_Before = await troveManager.getTroveOwnersCount()
 
@@ -404,6 +409,9 @@ contract('TroveManager', async accounts => {
     assert.isFalse(await th.checkRecoveryMode(contracts));
 
     // Liquidate the trove
+    //console.log("ICR", (await troveManager.getCurrentICR(alice, price)).toString());
+    //console.log("MCR", mv._MCR.toString());
+
     await troveManager.liquidate(alice, { from: owner })
 
     // Check Alice's trove is removed, and bob remains
@@ -623,7 +631,7 @@ contract('TroveManager', async accounts => {
     const TCR_0 = await th.getTCR(contracts)
 
     const entireSystemCollBefore = await troveManager.getEntireSystemColl()
-    const entireSystemDebtBefore = await troveManager.getEntireSystemDebt()
+    const entireSystemDebtBefore = await troveManager.getEntireSystemDebt(await troveManager.accumulatedRate())
 
     const expectedTCR_0 = entireSystemCollBefore.mul(price).div(entireSystemDebtBefore)
 

@@ -165,7 +165,8 @@ contract HintHelpers is LiquityBase, Ownable, CheckContract {
         return LiquityMath._computeNominalCR(_coll, _debt);
     }
 
-    function computeCR(uint _coll, uint _debt, uint _price) external pure returns (uint) {
-        return LiquityMath._computeCR(_coll, _debt, _price);
+    function computeCR(uint _coll, uint _debt, uint _price) external view returns (uint) {
+        uint par = relayer.par();
+        return LiquityMath._computeCR(_coll, _debt, _price, par);
     }
 }
