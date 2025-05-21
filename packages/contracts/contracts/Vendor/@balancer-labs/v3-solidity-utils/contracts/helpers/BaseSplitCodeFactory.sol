@@ -163,51 +163,8 @@ contract BaseSplitCodeFactory {
         }
 
         // solhint-disable-next-line no-inline-assembly
-        // assembly ("memory-safe") {
-        //     mcopy(constructorArgsCodeDataPtr, constructorArgsDataPtr, constructorArgsSize)
-        // }
         assembly ("memory-safe") {
-            let dst := constructorArgsCodeDataPtr
-            let src := constructorArgsDataPtr
-            let len := constructorArgsSize
-
-            // Number of full 32-byte words
-            let numWords := div(len, 32)
-
-            // Copy full words
-            for {
-                let i := 0
-            } lt(i, numWords) {
-                i := add(i, 1)
-            } {
-                let offset := mul(i, 32)
-                mstore(add(dst, offset), mload(add(src, offset)))
-            }
-
-            // Copy remaining bytes (if any)
-            let remainder := mod(len, 32)
-            if gt(remainder, 0) {
-                // Offset for the start of the remaining bytes
-                let remainderOffset := mul(numWords, 32)
-
-                // To copy the remaining bytes precisely without overwriting unrelated
-                // bytes in the last destination word, we load the source and destination
-                // words, mask them, and combine.
-
-                let srcWordPtr := add(src, remainderOffset)
-                let dstWordPtr := add(dst, remainderOffset)
-
-                // Create a mask that has '1's for the first 'remainder' bytes
-                // e.g., if remainder is 3, mask is 0xffffff00...00 (MSB)
-                // mask = not(sub(shl(mul(sub(32, remainder), 8), 1), 1)); // Fails for remainder = 32
-                let mask := shr(mul(sub(32, remainder), 8), not(0)) // Correct mask: 0xFF...FF00...00 for 'remainder' bytes
-
-                let val := mload(srcWordPtr)
-                let TmpDst := mload(dstWordPtr)
-
-                val := or(and(val, mask), and(TmpDst, not(mask)))
-                mstore(dstWordPtr, val)
-            }
+            mcopy(constructorArgsCodeDataPtr, constructorArgsDataPtr, constructorArgsSize)
         }
     }
 
