@@ -6,7 +6,6 @@ pragma solidity ^0.8.24;
  */
 interface IRDOracle {
     // --- Events ---
-
     // --- Errors ---
 
     /**
@@ -50,11 +49,11 @@ interface IRDOracle {
      */
     function rdToken() external view returns (address _rdToken);
 
-    // /**
-    //  * @notice Getter for the stablecoin basket
-    //  * @return _stablecoinBasket The stablecoin basket
-    //  */
-    // function stablecoinBasket() external view returns (address[] memory _stablecoinBasket);
+    /**
+     * @notice Getter for the stablecoin basket
+     * @return _stablecoinBasket The stablecoin basket
+     */
+    function stablecoinBasket() external view returns (address[] memory _stablecoinBasket);
 
     // --- Data ---
 
@@ -64,12 +63,12 @@ interface IRDOracle {
      */
     function rdTokenIndex() external view returns (uint8 _rdTokenIndex);
 
-    //     /**
-    //      * @notice Getter for the stablecoin basket indices
-    //      * @return _stablecoinBasketIndices The stablecoin basket indices
-    //      */
-    //     function stablecoinBasketIndices()
-    //         external
-    //         view
-    //         returns (uint8[] memory _stablecoinBasketIndices);
+    /**
+     * @notice Getter for the stablecoin basket indices
+     * @return _stablecoinBasketIndices The stablecoin basket indices
+     */
+    function stablecoinBasketIndices()
+        external
+        view
+        returns (uint8[] memory _stablecoinBasketIndices);
 }
