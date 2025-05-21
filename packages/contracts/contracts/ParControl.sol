@@ -235,7 +235,7 @@ contract ParControl is Ownable, CheckContract, IParControl {
         _requireCallerIsRelayer();
         uint256 timeElapsed = block.timestamp - lastUpdateTime;
 
-        require(block.timestamp > lastUpdateTime, "PIController/wait-longer");
+        //require(block.timestamp > lastUpdateTime, "PIController/wait-longer");
 
         (int256 newErrorIntegral, int256 newArea) = getNextErrorIntegral(error, timeElapsed);
 

@@ -14,8 +14,8 @@ contract Relayer is Ownable, CheckContract {
     uint256 constant DECIMAL_PRECISION = 1e18;
     uint256 constant RATE_PRECISION = 1e27;
     int256 constant DECIMAL_PRECISION_I = 1e18;
-    uint256 constant MAX_PAR_STALENESS = 60;
-    uint256 constant MAX_RATE_STALENESS = 300;
+    uint256 public constant MAX_PAR_STALENESS = 60;
+    uint256 public constant MAX_RATE_STALENESS = 300;
     uint256 constant PAR_EPSILON_1 = 1 * 10**15; // $0.001
     uint256 constant PAR_EPSILON_2 = 3 * 10**15; // $0.003
     uint256 constant RATE_EPSILON_1 = 1 * 10**15; // $0.001
@@ -68,14 +68,9 @@ contract Relayer is Ownable, CheckContract {
         _renounceOwnership();
     }
 
-    function controlError(uint256 market) external pure returns (int256) {
-        return _controlError(market);
-    }
-
     function _controlError(uint256 market) internal pure returns (int256) {
         return DECIMAL_PRECISION_I - int256(market);
     }
-
 
     /*
     * @notice Sets error to 0 inside a deadband and scales it up towards the outerband
@@ -98,22 +93,6 @@ contract Relayer is Ownable, CheckContract {
         uint256 rampFactor = (rampNumerator * DECIMAL_PRECISION) / rampDenominator;
 
         scaledError = (error * int256(rampFactor)) / DECIMAL_PRECISION_I;
-    }
-
-    function parControlError(uint256 market) external pure returns (int256) {
-        return _parControlError(market);
-    }
-
-    function _parControlError(uint256 market) internal pure returns (int256) {
-        return DECIMAL_PRECISION_I - int256(market);
-    }
-
-    function rateControlError(uint256 market) external pure returns (int256) {
-        return _rateControlError(market);
-    }
-
-    function _rateControlError(uint256 market) internal pure returns (int256) {
-        return DECIMAL_PRECISION_I - int256(market);
     }
 
     // Get par and rate, update if they are stale
@@ -159,7 +138,7 @@ contract Relayer is Ownable, CheckContract {
     }
 
     function _updatePar(uint256 marketPrice) internal returns (uint256) {
-        int256 error = _parControlError(marketPrice);
+        int256 error = _controlError(marketPrice);
         int256 rampedError =  _rampError(error, PAR_EPSILON_1, PAR_EPSILON_2);
 
         (int256 newPar, int256 pOutput, int256 iOutput) = parControl.update(rampedError);
@@ -179,15 +158,15 @@ contract Relayer is Ownable, CheckContract {
     }
 
     function _updateRate(uint256 market) internal returns (uint256) {
-        int256 error = _rateControlError(market);
+        int256 error = _controlError(market);
         int256 rampedError =  _rampError(error, RATE_EPSILON_1, RATE_EPSILON_2);
-
 
         (int256 newRate, int256 pOutput, int256 iOutput) = rateControl.update(rampedError);
         emit RateUpdated(newRate, pOutput, iOutput, rampedError);
 
         lastRateUpdateTime = block.timestamp;
 
+        // RATEControl output is a "delta rate" so need to add 1 to get per-sec rate
         rate = RATE_PRECISION + uint256(newRate);
 
         return rate;
@@ -203,6 +182,7 @@ contract Relayer is Ownable, CheckContract {
         _requireCallerIsMarketOracle();
         return _updatePar(marketPrice);
     }
+
     function updateRateWithMarket(uint256 marketPrice) external returns (uint256) {
         _requireCallerIsMarketOracle();
         return _updateRate(marketPrice);
@@ -221,6 +201,6 @@ contract Relayer is Ownable, CheckContract {
         "Relayer: Caller is not TroveManager or BorrowerOperations contract");
     }
     function _requireCallerIsMarketOracle() internal view {
-        require(msg.sender == address(marketOracle), "Relayer: Caller is not MarketOracle contract");
+        require(msg.sender == address(marketOracle), "Relayer: Caller is not the MarketOracle contract");
     }
 }
