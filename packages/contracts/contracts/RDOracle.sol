@@ -138,22 +138,34 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
      * @notice Update the synthetic RD price
      * @param  _lastBalancesWad The last balances of the pool
      */
-    function _updateSyntheticRDPrice(uint256[] memory _lastBalancesWad) internal view {
+    function _updateSyntheticRDPrice(uint256[] memory _lastBalancesWad) internal {
         // TODO: Implement price update
         uint256 _currentSyntheticRDPriceWad = _calculateInstantaneousSyntheticRDPrice(
             _lastBalancesWad
         );
-        int24 _tick = _convertRawPriceToTick(_currentSyntheticRDPriceWad);
-    }
+        uint160 _sqrtPriceX96 = _convertPriceToSqrtPriceX96(_currentSyntheticRDPriceWad);
+        int24 _tick = TickMath.getTickAtSqrtRatio(_sqrtPriceX96);
 
-    /**
-     * @notice Convert a price to a tick value
-     * @param  _rawPrice The price to convert
-     * @return _tick The tick value
-     */
-    function _convertRawPriceToTick(uint256 _rawPrice) internal pure returns (int24 _tick) {
-        uint160 _sqrtPriceX96 = _convertPriceToSqrtPriceX96(_rawPrice);
-        return TickMath.getTickAtSqrtRatio(_sqrtPriceX96);
+        // If the tick has changed, update the oracle state and write the observation
+        if (_tick != oracleState.tick) {
+            (uint16 observationIndex, uint16 observationCardinality) = observations.write(
+                oracleState.observationIndex,
+                _blockTimestamp(),
+                oracleState.tick,
+                0,
+                oracleState.observationCardinality,
+                oracleState.observationCardinalityNext
+            );
+            (
+                oracleState.sqrtPriceX96,
+                oracleState.tick,
+                oracleState.observationIndex,
+                oracleState.observationCardinality
+            ) = (_sqrtPriceX96, _tick, observationIndex, observationCardinality);
+        } else {
+            // otherwise just update the sqrtPriceX96
+            oracleState.sqrtPriceX96 = _sqrtPriceX96;
+        }
     }
 
     /**
@@ -238,6 +250,14 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         _syntheticRDPriceWad = _WAD.mulDown(_WAD).divDown(_medianBasketPriceInRD);
 
         return _syntheticRDPriceWad;
+    }
+
+    /**
+     * @notice Returns the block timestamp truncated to 32 bits, i.e. mod 2**32.
+     * @return _blockTimestamp The block timestamp
+     */
+    function _blockTimestamp() internal view virtual returns (uint32) {
+        return uint32(block.timestamp); // truncation is desired
     }
 
     /**
