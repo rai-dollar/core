@@ -71,4 +71,26 @@ interface IRDOracle {
         external
         view
         returns (uint8[] memory _stablecoinBasketIndices);
+
+    /**
+     * @notice Returns data about a specific observation index
+     * @param index The element of the observations array to fetch
+     * @dev You most likely want to use #observe() instead of this method to get an observation as of some amount of time
+     * ago, rather than at a specific index in the array.
+     * @return blockTimestamp The timestamp of the observation,
+     * @return tickCumulative the tick multiplied by seconds elapsed for the life of the pool as of the observation timestamp,
+     * @return secondsPerLiquidityCumulativeX128 the seconds per in range liquidity for the life of the pool as of the observation timestamp,
+     * @return initialized whether the observation has been initialized and the values are safe to use
+     */
+    function observations(
+        uint256 index
+    )
+        external
+        view
+        returns (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        );
 }

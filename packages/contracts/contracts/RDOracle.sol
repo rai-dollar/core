@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {FixedPoint} from "./Vendor/@balancer-labs/v3-solidity-utils/contracts/math/FixedPoint.sol";
 import {Arrays} from "./Vendor/@balancer-labs/dependencies/@openzeppelin/contracts/utils/Arrays.sol";
+import {Math} from "./Vendor/@balancer-labs/dependencies/@openzeppelin/contracts/utils/math/Math.sol";
 
 import {BaseHooks} from "./Vendor/@balancer-labs/v3-vault/contracts/BaseHooks.sol";
 
@@ -14,7 +16,8 @@ import {HookFlags, TokenConfig, LiquidityManagement, AfterSwapParams} from "./Ve
 import {BasePoolFactory} from "./Vendor/@balancer-labs/v3-pool-utils/contracts/BasePoolFactory.sol";
 import {StablePool, Rounding} from "./Vendor/@balancer-labs/v3-pool-stable/contracts/StablePool.sol";
 
-import {FixedPoint} from "./Vendor/@balancer-labs/v3-solidity-utils/contracts/math/FixedPoint.sol";
+import {Oracle} from "./Vendor/@uniswap/v3-core/contracts/libraries/Oracle.sol";
+
 import {IRDOracle} from "./Interfaces/IRDOracle.sol";
 
 // Note: If > 50% of tokens in pool are yield bearing must use rate provider for token
@@ -22,11 +25,11 @@ import {IRDOracle} from "./Interfaces/IRDOracle.sol";
 
 contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     using FixedPoint for uint256;
+    using Math for uint256;
     using Arrays for uint256[];
+    using Oracle for Oracle.Observation[65535];
 
     // --- Constants ---
-
-    /// @inheritdoc IRDOracle
 
     /**
      * @notice The constant WAD.
@@ -69,6 +72,9 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         return _stablecoinBasketIndices;
     }
 
+    /// @inheritdoc IRDOracle
+    Oracle.Observation[65535] public override observations;
+
     // --- Init ---
 
     constructor(
@@ -79,6 +85,8 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         vault = _vault;
         rdToken = _rdToken;
         _stablecoinBasket = stablesBasket;
+
+        // Initialize observations array
     }
 
     /// @inheritdoc IHooks
@@ -128,6 +136,30 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         uint256 _currentSyntheticRDPriceWad = _calculateInstantaneousSyntheticRDPrice(
             _lastBalancesWad
         );
+    }
+
+    function _convertRawPriceToTick(uint256 _rawPrice) internal pure returns (int24 _tick) {
+        // convert the raw price to a sqrtPriceX96 value
+        // sqrtPriceX96 is a Q64.96 fixed-point number representing the square root of the price
+        // sqrtPriceX96 = sqrt(price) * 2^96
+    }
+
+    /**
+     * @notice Convert a price to a sqrtPriceX96 value
+     *
+     * @dev
+     *
+     *         sqrtPriceX96 is a Q64.96 fixed-point number representing the square root of the price
+     *         sqrtPriceX96 = sqrt(price) * 2^96
+     *
+     * @param  _price The price to convert
+     * @return _sqrtPriceX96 The sqrtPriceX96 value
+     */
+    function _convertPriceToSqrtPriceX96(
+        uint256 _price
+    ) internal pure returns (uint160 _sqrtPriceX96) {
+        uint256 _sqrtPrice = Math.sqrt(_price);
+        return uint160(_sqrtPrice * 2 ** 96);
     }
 
     /**
