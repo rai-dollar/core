@@ -17,6 +17,7 @@ import {BasePoolFactory} from "./Vendor/@balancer-labs/v3-pool-utils/contracts/B
 import {StablePool, Rounding} from "./Vendor/@balancer-labs/v3-pool-stable/contracts/StablePool.sol";
 
 import {Oracle} from "./Vendor/@uniswap/v3-core/contracts/libraries/Oracle.sol";
+import {TickMath} from "./Vendor/@uniswap/v3-core/contracts/libraries/TickMath.sol";
 
 import {IRDOracle} from "./Interfaces/IRDOracle.sol";
 
@@ -136,12 +137,17 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         uint256 _currentSyntheticRDPriceWad = _calculateInstantaneousSyntheticRDPrice(
             _lastBalancesWad
         );
+        int24 _tick = _convertRawPriceToTick(_currentSyntheticRDPriceWad);
     }
 
+    /**
+     * @notice Convert a price to a tick value
+     * @param  _rawPrice The price to convert
+     * @return _tick The tick value
+     */
     function _convertRawPriceToTick(uint256 _rawPrice) internal pure returns (int24 _tick) {
-        // convert the raw price to a sqrtPriceX96 value
-        // sqrtPriceX96 is a Q64.96 fixed-point number representing the square root of the price
-        // sqrtPriceX96 = sqrt(price) * 2^96
+        uint160 _sqrtPriceX96 = _convertPriceToSqrtPriceX96(_rawPrice);
+        return TickMath.getTickAtSqrtRatio(_sqrtPriceX96);
     }
 
     /**
