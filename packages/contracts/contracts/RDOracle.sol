@@ -79,18 +79,33 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     /// @inheritdoc IRDOracle
     Oracle.Observation[65535] public override observations;
 
+    /// @inheritdoc IRDOracle
+    uint32 public override quotePeriod;
+
+    /// @inheritdoc IRDOracle
+    string public override symbol = "RD / USD";
+
     // --- Init ---
 
+    /**
+     * @param  _vault Address of the vault
+     * @param  _rdToken Address of the RD token
+     * @param  _quotePeriod Length in seconds of the TWAP used to consult the pool
+     * @param  _stablecoins Array of addresses of the stablecoins in the pool
+     */
     constructor(
         address _vault,
         address _rdToken,
-        address[] memory stablesBasket
+        uint32 _quotePeriod,
+        address[] memory _stablecoins
     ) VaultGuard(IVault(_vault)) {
         vault = _vault;
         rdToken = _rdToken;
-        _stablecoinBasket = stablesBasket;
+        _stablecoinBasket = _stablecoins;
+        quotePeriod = _quotePeriod;
 
-        // Initialize observations array
+        // Initialize oracle state with price of 1 RD/USD
+        _initialize(2 ** 96);
     }
 
     /// @inheritdoc IHooks
@@ -132,6 +147,94 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         }
 
         return (true, 0);
+    }
+
+    // --- Methods ---
+
+    /// @inheritdoc IRDOracle
+    function getResultWithValidity() external view returns (uint256 _result, bool _validity) {
+        // If the pool doesn't have enough history return false
+
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = quotePeriod;
+        secondsAgos[1] = 0;
+        (int56[] memory tickCumulatives, ) = this.observe(secondsAgos);
+        int56 tickCumulativesDelta = tickCumulatives[1] - tickCumulatives[0];
+        int24 arithmeticMeanTick = int24(tickCumulativesDelta / int56(int32(quotePeriod)));
+        uint160 sqrtPriceX96 = TickMath.getSqrtRatioAtTick(arithmeticMeanTick);
+        _result = _convertSqrtPriceX96ToPrice(sqrtPriceX96);
+        _validity = true;
+    }
+
+    /// @inheritdoc IRDOracle
+    function read() external view returns (uint256 _value) {
+        (uint256 _result, bool _validity) = this.getResultWithValidity();
+        if (!_validity) {
+            revert Oracle_InvalidResult();
+        }
+        return _result;
+    }
+
+    /// @inheritdoc IRDOracle
+    function observe(
+        uint32[] calldata _secondsAgos
+    )
+        external
+        view
+        override
+        returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s)
+    {
+        return
+            observations.observe(
+                _blockTimestamp(),
+                _secondsAgos,
+                oracleState.tick,
+                oracleState.observationIndex,
+                0,
+                oracleState.observationCardinality
+            );
+    }
+
+    /**
+     * @notice Initialize the oracle
+     * @param  _sqrtPriceX96 The sqrtPriceX96 value
+     */
+    function _initialize(uint160 _sqrtPriceX96) internal {
+        if (oracleState.sqrtPriceX96 != 0) {
+            revert Oracle_AlreadyInitialized();
+        }
+
+        int24 _tick = TickMath.getTickAtSqrtRatio(_sqrtPriceX96);
+
+        (uint16 _cardinality, uint16 _cardinalityNext) = observations.initialize(_blockTimestamp());
+
+        oracleState = OracleState({
+            sqrtPriceX96: _sqrtPriceX96,
+            tick: _tick,
+            observationIndex: 0,
+            observationCardinality: _cardinality,
+            observationCardinalityNext: _cardinalityNext
+        });
+    }
+
+    /**
+     * @notice Get the number of seconds ago of the oldest stored observation
+     * @return _secondsAgo The number of seconds ago of the oldest observation stored for the pool
+     */
+    function _getOldestObservationSecondsAgo() internal view returns (uint32 _secondsAgo) {
+        uint16 _observationIndex = oracleState.observationIndex;
+        uint16 _observationCardinality = oracleState.observationCardinality;
+        (uint32 _observationTimestamp, , , bool _initialized) = this.observations(
+            (_observationIndex + 1) % _observationCardinality
+        );
+
+        // The next index might not be initialized if the cardinality is in the process of increasing
+        // In this case the oldest observation is always in index 0
+        if (!_initialized) {
+            (_observationTimestamp, , , ) = this.observations(0);
+        }
+
+        _secondsAgo = uint32(block.timestamp) - _observationTimestamp;
     }
 
     /**
@@ -184,6 +287,17 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     ) internal pure returns (uint160 _sqrtPriceX96) {
         uint256 _sqrtPrice = Math.sqrt(_price);
         return uint160(_sqrtPrice * 2 ** 96);
+    }
+
+    /**
+     * @notice Convert a sqrtPriceX96 value to a price
+     * @param  _sqrtPriceX96 The sqrtPriceX96 value
+     * @return _price The price
+     */
+    function _convertSqrtPriceX96ToPrice(
+        uint160 _sqrtPriceX96
+    ) internal pure returns (uint256 _price) {
+        // return uint256(_sqrtPriceX96) ** 2 / 2 ** 192;
     }
 
     /**

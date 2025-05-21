@@ -29,6 +29,16 @@ interface IRDOracle {
      */
     error Oracle_MedianCalculationError();
 
+    /**
+     * @notice Error thrown when the oracle result is invalid
+     */
+    error Oracle_InvalidResult();
+
+    /**
+     * @notice Error thrown when the oracle is already initialized
+     */
+    error Oracle_AlreadyInitialized();
+
     // --- Structs ---
 
     /**
@@ -76,10 +86,22 @@ interface IRDOracle {
     // --- Data ---
 
     /**
+     * @notice Symbol of the quote (e.g. 'RD / USD')
+     * @return _symbol The symbol of the quote
+     */
+    function symbol() external view returns (string memory _symbol);
+
+    /**
      * @notice Getter for the RD token index
      * @return _rdTokenIndex The RD token index
      */
     function rdTokenIndex() external view returns (uint8 _rdTokenIndex);
+
+    /**
+     * @notice The length of the TWAP used to consult the pool
+     * @return _quotePeriod The length of the TWAP used to consult the pool
+     */
+    function quotePeriod() external view returns (uint32 _quotePeriod);
 
     /**
      * @notice Getter for the stablecoin basket indices
@@ -132,5 +154,43 @@ interface IRDOracle {
             uint16 observationIndex,
             uint16 observationCardinality,
             uint16 observationCardinalityNext
+        );
+
+    // --- Methods ---
+
+    /**
+     * @notice Fetch the latest oracle result and whether it is valid or not
+     * @dev    This method should never revert
+     * @return _result The latest oracle result
+     * @return _validity Whether the oracle result is valid
+     */
+    function getResultWithValidity() external view returns (uint256 _result, bool _validity);
+
+    /**
+     * @notice Fetch the latest oracle result
+     * @dev    Will revert if is the price feed is invalid
+     * @return _value The latest oracle result
+     */
+    function read() external view returns (uint256 _value);
+
+    /**
+     * @notice Returns the cumulative tick and liquidity as of each timestamp `secondsAgo` from the current block timestamp
+     * @dev To get a time weighted average tick or liquidity-in-range, you must call this with two values, one representing
+     * the beginning of the period and another for the end of the period. E.g., to get the last hour time-weighted average tick,
+     * you must call it with secondsAgos = [3600, 0].
+     * @dev The time weighted average tick represents the geometric time weighted average price of the pool, in
+     * log base sqrt(1.0001) of token1 / token0. The TickMath library can be used to go from a tick value to a ratio.
+     * @param _secondsAgos From how long ago each cumulative tick and liquidity value should be returned
+     * @return tickCumulatives Cumulative tick values as of each `_secondsAgos` from the current block timestamp
+     * @return secondsPerLiquidityCumulativeX128s This is 0 as it's not implemented
+     */
+    function observe(
+        uint32[] calldata _secondsAgos
+    )
+        external
+        view
+        returns (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
         );
 }
