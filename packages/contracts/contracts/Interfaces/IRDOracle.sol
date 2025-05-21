@@ -29,6 +29,24 @@ interface IRDOracle {
      */
     error Oracle_MedianCalculationError();
 
+    // --- Structs ---
+
+    /**
+     * @notice Struct for the oracle state
+     */
+    struct OracleState {
+        // the current price
+        uint160 sqrtPriceX96;
+        // the current tick
+        int24 tick;
+        // the most-recently updated index of the observations array
+        uint16 observationIndex;
+        // the current maximum number of observations that are being stored
+        uint16 observationCardinality;
+        // the next maximum number of observations to store, triggered in observations.write
+        uint16 observationCardinalityNext;
+    }
+
     // --- Registry ---
 
     /**
@@ -92,5 +110,27 @@ interface IRDOracle {
             int56 tickCumulative,
             uint160 secondsPerLiquidityCumulativeX128,
             bool initialized
+        );
+
+    /**
+     * @notice The 0th storage slot in the pool stores many values, and is exposed as a single method to save gas
+     * when accessed externally.
+     * @return sqrtPriceX96 The current price of the pool as a sqrt(token1/token0) Q64.96 value
+     * @return tick The current tick of the pool, i.e. according to the last tick transition that was run.
+     * This value may not always be equal to SqrtTickMath.getTickAtSqrtRatio(sqrtPriceX96) if the price is on a tick
+     * boundary.
+     * @return observationIndex The index of the last oracle observation that was written,
+     * @return observationCardinality The current maximum number of observations stored in the pool,
+     * @return observationCardinalityNext The next maximum number of observations, to be updated when the observation.
+     */
+    function oracleState()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext
         );
 }

@@ -30,6 +30,9 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     using Arrays for uint256[];
     using Oracle for Oracle.Observation[65535];
 
+    /// @inheritdoc IRDOracle
+    OracleState public override oracleState;
+
     // --- Constants ---
 
     /**
@@ -131,7 +134,10 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         return (true, 0);
     }
 
-    // Get's RD price and saves it to the observations
+    /**
+     * @notice Update the synthetic RD price
+     * @param  _lastBalancesWad The last balances of the pool
+     */
     function _updateSyntheticRDPrice(uint256[] memory _lastBalancesWad) internal view {
         // TODO: Implement price update
         uint256 _currentSyntheticRDPriceWad = _calculateInstantaneousSyntheticRDPrice(
