@@ -85,6 +85,9 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     /// @inheritdoc IRDOracle
     string public override symbol = "RD / USD";
 
+    /// @inheritdoc IRDOracle
+    uint32 public override minObservationDelta;
+
     // --- Init ---
 
     /**
@@ -92,18 +95,20 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
      * @param  _rdToken Address of the RD token
      * @param  _quotePeriod Length in seconds of the TWAP used to consult the pool
      * @param  _stablecoins Array of addresses of the stablecoins in the pool
+     * @param  _minObservationDelta The minimum observation delta
      */
     constructor(
         address _vault,
         address _rdToken,
         uint32 _quotePeriod,
-        address[] memory _stablecoins
+        address[] memory _stablecoins,
+        uint32 _minObservationDelta
     ) VaultGuard(IVault(_vault)) {
         vault = _vault;
         rdToken = _rdToken;
         _stablecoinBasket = _stablecoins;
         quotePeriod = _quotePeriod;
-
+        minObservationDelta = _minObservationDelta;
         // Initialize oracle state with price of 1 RD/USD
         _initialize(2 ** 96);
     }
@@ -139,6 +144,13 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     ) public override onlyVault returns (bool _success, uint256 _hookAdjustedAmountCalculatedRaw) {
         // If time since last observation > minDelta then update price in observations
         bool _shouldUpdate = true;
+
+        uint16 _observationIndex = oracleState.observationIndex;
+        (uint32 _lastUpdateTime, , , ) = this.observations(_observationIndex);
+
+        if (_blockTimestamp() - _lastUpdateTime < minObservationDelta) {
+            _shouldUpdate = false;
+        }
 
         if (_shouldUpdate) {
             // Get last balances of all tokens in the pool

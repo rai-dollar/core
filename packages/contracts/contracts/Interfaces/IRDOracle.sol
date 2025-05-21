@@ -86,12 +86,6 @@ interface IRDOracle {
     // --- Data ---
 
     /**
-     * @notice Symbol of the quote (e.g. 'RD / USD')
-     * @return _symbol The symbol of the quote
-     */
-    function symbol() external view returns (string memory _symbol);
-
-    /**
      * @notice Getter for the RD token index
      * @return _rdTokenIndex The RD token index
      */
@@ -102,6 +96,18 @@ interface IRDOracle {
      * @return _quotePeriod The length of the TWAP used to consult the pool
      */
     function quotePeriod() external view returns (uint32 _quotePeriod);
+
+    /**
+     * @notice Symbol of the quote (e.g. 'RD / USD')
+     * @return _symbol The symbol of the quote
+     */
+    function symbol() external view returns (string memory _symbol);
+
+    /**
+     * @notice The minimum observation delta
+     * @return _minObservationDelta The minimum observation delta
+     */
+    function minObservationDelta() external view returns (uint32 _minObservationDelta);
 
     /**
      * @notice Getter for the stablecoin basket indices
