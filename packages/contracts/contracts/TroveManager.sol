@@ -858,6 +858,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         //console.logUint(par);
         //console.logString("currentLUSDDebt");
         //console.logUint(currentLUSDDebt);
+        //console.logString("actualLUSDDebt");
         //console.logUint(_actualDebt(currentLUSDDebt));
 
         uint ICR = LiquityMath._computeCR(currentETH, _actualDebt(currentLUSDDebt), _price, par);

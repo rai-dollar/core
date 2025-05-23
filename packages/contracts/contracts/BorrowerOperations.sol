@@ -167,7 +167,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         ContractsCache memory contractsCache = ContractsCache(troveManager, activePool, lusdToken);
         LocalVariables_openTrove memory vars;
 
-        vars.par = relayer.updatePar();
+        vars.par = relayer.getPar();
         vars.accRate = troveManager.accumulatedRate();
         vars.price = priceFeed.fetchPrice();
         bool isRecoveryMode = _checkRecoveryMode(vars.price, vars.accRate);
@@ -261,7 +261,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         ContractsCache memory contractsCache = ContractsCache(troveManager, activePool, lusdToken);
         LocalVariables_adjustTrove memory vars;
 
-        vars.par = relayer.updatePar();
+        vars.par = relayer.getPar();
         vars.accRate = troveManager.accumulatedRate();
         vars.price = priceFeed.fetchPrice();
         bool isRecoveryMode = _checkRecoveryMode(vars.price, vars.accRate);

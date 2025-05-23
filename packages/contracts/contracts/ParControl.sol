@@ -26,7 +26,7 @@ contract ParControl is Ownable, CheckContract, IParControl {
     uint256 public constant PER_SECOND_INTEGRAL_LEAK = 10 ** 18; // [TWENTY_SEVEN_DECIMAL_NUMBER]
 
     // The maximum output value, $1.00
-    int256 public constant OUTPUT_UPPER_BOUND = 10 ** 18; // [TWENTY_SEVEN_DECIMAL_NUMBER]
+    int256 public constant OUTPUT_UPPER_BOUND = 115 * 10 ** 16; // [TWENTY_SEVEN_DECIMAL_NUMBER]
 
     // The minimum output value, $0.85
     int256 public constant OUTPUT_LOWER_BOUND = 85 * 10 ** 16; // [TWENTY_SEVEN_DECIMAL_NUMBER]

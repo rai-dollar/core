@@ -396,6 +396,36 @@ class TestHelper {
     throw ("The transaction logs do not contain a liquidation event")
   }
 
+  static getEmittedTroveUpdateValues(troveUpdateTx) {
+    for (let i = 0; i < troveUpdateTx.logs.length; i++) {
+      if (troveUpdateTx.logs[i].event === "TroveUpdated") {
+        const borrower = troveUpdateTx.logs[i].args[0]
+        const debt = troveUpdateTx.logs[i].args[1]
+        const coll = troveUpdateTx.logs[i].args[2]
+        const stake = troveUpdateTx.logs[i].args[3]
+        const operation = troveUpdateTx.logs[i].args[4]
+
+        return [borrower, debt, coll, stake, operation]
+      }
+    }
+    throw ("The transaction logs do not contain a trove update event")
+  }
+
+  static getEmittedTroveICRValues(troveUpdateTx) {
+    for (let i = 0; i < troveUpdateTx.logs.length; i++) {
+      if (troveUpdateTx.logs[i].event === "TroveICR") {
+        const icr = troveUpdateTx.logs[i].args[0]
+        const value = troveUpdateTx.logs[i].args[1]
+        const compDebt = troveUpdateTx.logs[i].args[2]
+        const price = troveUpdateTx.logs[i].args[3]
+        const par = troveUpdateTx.logs[i].args[4]
+
+        return [icr, value, compDebt, price, par]
+      }
+    }
+    throw ("The transaction logs do not contain a trove update event")
+  }
+
   static getEmittedLiquidatedDebt(liquidationTx) {
     return this.getLiquidationEventArg(liquidationTx, 0)  // LiquidatedDebt is position 0 in the Liquidation event
   }
@@ -684,12 +714,15 @@ class TestHelper {
     if (!ICR && !extraParams.value) ICR = this.toBN(this.dec(15, 17)) // 150%
     else if (typeof ICR == 'string') ICR = this.toBN(ICR)
 
+    // totaldebt = lusdAmount + fee + gas_comp
     const totalDebt = await this.getOpenTroveTotalDebt(contracts, lusdAmount)
+    // netDebt = totalDebt - gas_comp
     const netDebt = await this.getActualDebtFromComposite(totalDebt, contracts)
 
     if (ICR) {
+      const par = await contracts.relayer.par()
       const price = await contracts.priceFeedTestnet.getPrice()
-      extraParams.value = ICR.mul(totalDebt).div(price)
+      extraParams.value = ICR.mul(totalDebt).mul(par).div(this.toBN(this.dec(1, 18)).mul(price))
     }
 
     const tx = await contracts.borrowerOperations.openTrove(maxFeePercentage, lusdAmount, upperHint, lowerHint, extraParams)

@@ -24,6 +24,8 @@ contract('TroveManager', async accounts => {
 
   const _18_zeros = '000000000000000000'
   const ZERO_ADDRESS = th.ZERO_ADDRESS
+  const ONE_DOLLAR = toBN(dec(1, 18))
+  const ONE_CENT = toBN(dec(1, 16))
 
   const [
     owner,
@@ -74,6 +76,7 @@ contract('TroveManager', async accounts => {
     borrowerOperations = contracts.borrowerOperations
     hintHelpers = contracts.hintHelpers
     relayer = contracts.relayer
+    marketOracle = contracts.marketOracleTestnet
 
     lqtyStaking = LQTYContracts.lqtyStaking
     lqtyToken = LQTYContracts.lqtyToken
@@ -4347,6 +4350,17 @@ contract('TroveManager', async accounts => {
     assert.equal(carol_PendingETHReward, 0)
   })
 
+  // --- getCurrentICR ---
+//
+  it('getCurrentICR(): reports intended ICR', async () => {
+    await openTrove({ ICR: toBN(dec(155, 16)), extraParams: { from: alice } })
+
+    const price = await priceFeed.getPrice()
+    const ICR_Before = await troveManager.getCurrentICR(alice, price)
+
+    assert.isTrue(toBN(dec(155, 16)).eq(ICR_Before))
+  })
+
   // --- computeICR ---
 
   it("computeICR(): Returns 0 if trove's coll is worth 0", async () => {
@@ -4359,7 +4373,7 @@ contract('TroveManager', async accounts => {
     assert.equal(ICR, 0)
   })
 
-  it("computeICR(): Returns 2^256-1 for ETH:USD = 100, coll = 1 ETH, debt = 100 LUSD", async () => {
+  it("computeICR(): Returns correct ICR for ETH:USD = 100, coll = 1 ETH, debt = 100 LUSD", async () => {
     const price = dec(100, 18)
     const coll = dec(1, 'ether')
     const debt = dec(100, 18)
@@ -4406,6 +4420,206 @@ contract('TroveManager', async accounts => {
     const debt = 0
 
     const ICR = web3.utils.toHex(await troveManager.computeICR(coll, debt, price))
+    const maxBytes32 = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+
+    assert.equal(ICR, maxBytes32)
+  })
+
+  // --- computeICR w/ non-$1 par---
+
+  it("computeICR(): Returns 0 if trove's coll is worth 0, par < 1", async () => {
+
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par()
+    assert.isTrue((await relayer.par()).lt(ONE_DOLLAR));
+
+    const price = 0
+    const coll = dec(1, 'ether')
+    const debt = dec(100, 18)
+
+    const ICR = (await troveManager.computeICR(coll, debt, price)).toString()
+
+    assert.equal(ICR, 0)
+    assert.isAtMost(th.getDifference(ICR, toBN(0).mul(toBN(dec(1,18))).div(par)), 1)
+  })
+  it("computeICR(): Returns 0 if trove's coll is worth 0, par > 1", async () => {
+
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par()
+    assert.isTrue((await relayer.par()).gt(ONE_DOLLAR));
+
+    const price = 0
+    const coll = dec(1, 'ether')
+    const debt = dec(100, 18)
+
+    const ICR = (await troveManager.computeICR(coll, debt, price)).toString()
+
+    assert.equal(ICR, 0)
+    assert.isAtMost(th.getDifference(ICR, toBN(0).mul(toBN(dec(1,18))).div(par)), 1)
+  })
+
+  it("computeICR(): Returns correct ICR for ETH:USD = 100, coll = 1 ETH, debt = 100 LUSD, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+    assert.isTrue(par.lt(ONE_DOLLAR));
+
+    const price = dec(100, 18)
+    const coll = dec(1, 'ether')
+    const debt = dec(100, 18)
+
+    const ICR = await troveManager.computeICR(coll, debt, price)
+
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+    // rounding error exists
+    assert.isAtMost(th.getDifference(ICRTimesPar, dec(1,18)), 1)
+    assert.isAtMost(th.getDifference(ICR, toBN(dec(1,18)).mul(toBN(dec(1,18))).div(par)), 1)
+  })
+
+  it("computeICR(): Returns correct ICR for ETH:USD = 100, coll = 1 ETH, debt = 100 LUSD, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+    assert.isTrue(par.gt(ONE_DOLLAR));
+
+    const price = dec(100, 18)
+    const coll = dec(1, 'ether')
+    const debt = dec(100, 18)
+
+    const ICR = await troveManager.computeICR(coll, debt, price)
+
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+    assert.isAtMost(th.getDifference(ICRTimesPar, dec(1,18)), 1)
+    assert.isAtMost(th.getDifference(ICR, toBN(dec(1,18)).mul(toBN(dec(1,18))).div(par)), 1)
+
+  })
+
+  it("computeICR(): returns correct ICR for ETH:USD = 100, coll = 200 ETH, debt = 30 LUSD, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    const coll = dec(200, 'ether')
+    const debt = dec(30, 18)
+
+    const ICR = await troveManager.computeICR(coll, debt, price)
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+    // rounding error exists
+    assert.isAtMost(th.getDifference(ICRTimesPar, '666666666666666666666'), 1)
+    assert.isAtMost(th.getDifference(ICR, toBN('666666666666666666666').mul(toBN(dec(1,18))).div(par)), 1000)
+  })
+
+  it("computeICR(): returns correct ICR for ETH:USD = 100, coll = 200 ETH, debt = 30 LUSD, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    const coll = dec(200, 'ether')
+    const debt = dec(30, 18)
+
+    const ICR = await troveManager.computeICR(coll, debt, price)
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+    // rounding error exists
+    assert.isAtMost(th.getDifference(ICRTimesPar, '666666666666666666666'), 1)
+    assert.isAtMost(th.getDifference(ICR, toBN('666666666666666666666').mul(toBN(dec(1,18))).div(par)), 1000)
+  })
+
+  it("computeICR(): returns correct ICR for ETH:USD = 250, coll = 1350 ETH, debt = 127 LUSD, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = '250000000000000000000'
+    const coll = '1350000000000000000000'
+    const debt = '127000000000000000000'
+
+    const ICR = (await troveManager.computeICR(coll, debt, price))
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+    // rounding error exists
+    assert.isAtMost(th.getDifference(ICRTimesPar, '2657480314960630000000'), 1000000)
+    assert.isAtMost(th.getDifference(ICR, toBN('2657480314960630000000').mul(toBN(dec(1,18))).div(par)), 1000000)
+  })
+
+  it("computeICR(): returns correct ICR for ETH:USD = 250, coll = 1350 ETH, debt = 127 LUSD, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = '250000000000000000000'
+    const coll = '1350000000000000000000'
+    const debt = '127000000000000000000'
+
+    const ICR = (await troveManager.computeICR(coll, debt, price))
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+    // rounding error exists
+    assert.isAtMost(th.getDifference(ICRTimesPar, '2657480314960630000000'), 1000000)
+    assert.isAtMost(th.getDifference(ICR, toBN('2657480314960630000000').mul(toBN(dec(1,18))).div(par)), 1000000)
+  })
+
+  it("computeICR(): returns correct ICR for ETH:USD = 100, coll = 1 ETH, debt = 54321 LUSD, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    const coll = dec(1, 'ether')
+    const debt = '54321000000000000000000'
+
+    const ICR = await troveManager.computeICR(coll, debt, price)
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+
+    // rounding error exists
+    assert.isAtMost(th.getDifference(ICRTimesPar, '1840908672520756'), 1000)
+    assert.isAtMost(th.getDifference(ICR, toBN('1840908672520756').mul(toBN(dec(1,18))).div(par)), 1000)
+  })
+  it("computeICR(): returns correct ICR for ETH:USD = 100, coll = 1 ETH, debt = 54321 LUSD, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    const coll = dec(1, 'ether')
+    const debt = '54321000000000000000000'
+
+    const ICR = await troveManager.computeICR(coll, debt, price)
+    const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+
+    // rounding error exists
+    assert.isAtMost(th.getDifference(ICRTimesPar, '1840908672520756'), 1000)
+    assert.isAtMost(th.getDifference(ICR, toBN('1840908672520756').mul(toBN(dec(1,18))).div(par)), 1000)
+  })
+
+  it("computeICR(): Returns 2^256-1 if trove has non-zero coll and zero debt, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    const coll = dec(1, 'ether')
+    const debt = 0
+
+    const ICR = web3.utils.toHex(await troveManager.computeICR(coll, debt, price))
+    //const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
+    const maxBytes32 = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+
+    assert.equal(ICR, maxBytes32)
+  })
+
+  it("computeICR(): Returns 2^256-1 if trove has non-zero coll and zero debt, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    const coll = dec(1, 'ether')
+    const debt = 0
+
+    const ICR = web3.utils.toHex(await troveManager.computeICR(coll, debt, price))
+    //const ICRTimesPar = ICR.mul(par).div(toBN(dec(1,18)))
     const maxBytes32 = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 
     assert.equal(ICR, maxBytes32)
@@ -4461,6 +4675,154 @@ contract('TroveManager', async accounts => {
 
   // check 0
   it("checkRecoveryMode(): Returns false when TCR == 0", async () => {
+    await priceFeed.setPrice(dec(100, 18))
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: bob } })
+
+    await priceFeed.setPrice(0)
+
+    const TCR = (await th.getTCR(contracts)).toString()
+
+    assert.equal(TCR, 0)
+
+    assert.isTrue(await th.checkRecoveryMode(contracts))
+  })
+
+  // --- checkRecoveryMode w non-$1 par---
+
+  //TCR < 150%
+  it("checkRecoveryMode(): Returns true when TCR < 150%, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    await priceFeed.setPrice(price)
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    
+    await priceFeed.setPrice('99999999999999999999')
+
+    const TCR = (await th.getTCR(contracts))
+
+    assert.isTrue(TCR.lte(toBN('1500000000000000000')))
+
+    assert.isTrue(await th.checkRecoveryMode(contracts))
+  })
+
+  it("checkRecoveryMode(): Returns true when TCR < 150%, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+    par = await relayer.par();
+
+    const price = dec(100, 18)
+    await priceFeed.setPrice(price)
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    
+    await priceFeed.setPrice('99999999999999999999')
+
+    const TCR = (await th.getTCR(contracts))
+
+    assert.isTrue(TCR.lte(toBN('1500000000000000000')))
+
+    assert.isTrue(await th.checkRecoveryMode(contracts))
+  })
+
+  // TCR == 150%
+  it("checkRecoveryMode(): Returns false when TCR == 150%, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+
+    await priceFeed.setPrice(dec(100, 18))
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: bob } })
+
+    const TCR = (await th.getTCR(contracts))
+
+    assert.equal(TCR, '1500000000000000000')
+
+    assert.isFalse(await th.checkRecoveryMode(contracts))
+  })
+
+  it("checkRecoveryMode(): Returns false when TCR == 150%, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+
+    await priceFeed.setPrice(dec(100, 18))
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: bob } })
+
+    const TCR = (await th.getTCR(contracts))
+
+    assert.equal(TCR, '1500000000000000000')
+
+    assert.isFalse(await th.checkRecoveryMode(contracts))
+  })
+
+  // > 150%
+  it("checkRecoveryMode(): Returns false when TCR > 150%, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+
+    await priceFeed.setPrice(dec(100, 18))
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: bob } })
+
+    await priceFeed.setPrice('100000000000000000001')
+
+    const TCR = (await th.getTCR(contracts))
+
+    assert.isTrue(TCR.gte(toBN('1500000000000000000')))
+
+    assert.isFalse(await th.checkRecoveryMode(contracts))
+  })
+
+  it("checkRecoveryMode(): Returns false when TCR > 150%, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+
+    await priceFeed.setPrice(dec(100, 18))
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: bob } })
+
+    await priceFeed.setPrice('100000000000000000001')
+
+    const TCR = (await th.getTCR(contracts))
+
+    assert.isTrue(TCR.gte(toBN('1500000000000000000')))
+
+    assert.isFalse(await th.checkRecoveryMode(contracts))
+  })
+
+  // check 0
+  it("checkRecoveryMode(): Returns false when TCR == 0, par < 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.add(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+
+    await priceFeed.setPrice(dec(100, 18))
+
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })
+    await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: bob } })
+
+    await priceFeed.setPrice(0)
+
+    const TCR = (await th.getTCR(contracts)).toString()
+
+    assert.equal(TCR, 0)
+
+    assert.isTrue(await th.checkRecoveryMode(contracts))
+  })
+
+  it("checkRecoveryMode(): Returns false when TCR == 0, par > 1", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+
     await priceFeed.setPrice(dec(100, 18))
 
     await openTrove({ ICR: toBN(dec(150, 16)), extraParams: { from: alice } })

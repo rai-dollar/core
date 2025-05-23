@@ -19,7 +19,7 @@ contract('Relayer', async accounts => {
   const _18_zeros = '000000000000000000'
   const ONE_DOLLAR = toBN(dec(1, 18))
   const ZERO_RATE = toBN(dec(1, 27))
-  const CENT = toBN(dec(1, 16))
+  const ONE_CENT = toBN(dec(1, 16))
   const ZERO_ADDRESS = th.ZERO_ADDRESS
 
   const [
@@ -96,11 +96,11 @@ contract('Relayer', async accounts => {
     error = await relayer.controlError(marketPrice);
     assert.equal(error, 10**18);
 
-    marketPrice = toBN(95).mul(CENT);
+    marketPrice = toBN(95).mul(ONE_CENT);
     error = await relayer.controlError(marketPrice);
     assert.equal(error.toString(), toBN(5*10**16).toString());
 
-    marketPrice = toBN(105).mul(CENT);
+    marketPrice = toBN(105).mul(ONE_CENT);
     error = await relayer.controlError(marketPrice);
     assert.equal(error.toString(), toBN(-5*10**16).toString());
 
@@ -198,10 +198,10 @@ contract('Relayer', async accounts => {
     await marketOracle.setPrice(ONE_DOLLAR);
 
     // update par
+    firstPar = await relayer.par();
     await relayer.getPar();
     updateTime = await relayer.lastParUpdateTime();
     assert.isTrue(updateTime.eq(await time.latest()));
-    assert((await relayer.par()).eq(ONE_DOLLAR));
 
     // update time changes
     assert.isTrue((await relayer.lastParUpdateTime()).eq(await time.latest()));
@@ -216,7 +216,8 @@ contract('Relayer', async accounts => {
     await relayer.getPar();
 
     // par is new value
-    assert((await relayer.par()).lt(ONE_DOLLAR));
+    newPar = await relayer.par();
+    assert(newPar.lt(firstPar));
 
     // update time has changed
     thisUpdateTime = await relayer.lastParUpdateTime();
