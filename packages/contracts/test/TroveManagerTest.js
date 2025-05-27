@@ -76,6 +76,8 @@ contract('TroveManager', async accounts => {
     borrowerOperations = contracts.borrowerOperations
     hintHelpers = contracts.hintHelpers
     relayer = contracts.relayer
+    parControl = contracts.parControl
+    rateControl = contracts.rateControl
     marketOracle = contracts.marketOracleTestnet
 
     lqtyStaking = LQTYContracts.lqtyStaking
@@ -86,6 +88,7 @@ contract('TroveManager', async accounts => {
     await deploymentHelper.connectCoreContracts(contracts, LQTYContracts)
     await deploymentHelper.connectLQTYContracts(LQTYContracts)
     await deploymentHelper.connectLQTYContractsToCore(LQTYContracts, contracts)
+
   })
 
   it('liquidate(): closes a Trove that has ICR < MCR', async () => {
@@ -126,6 +129,46 @@ contract('TroveManager', async accounts => {
     const alice_Trove_isInSortedList = await sortedTroves.contains(alice)
     assert.isFalse(alice_Trove_isInSortedList)
   })
+  it('liquidate(): closes a Trove that has ICR < MCR from par rising', async () => {
+    await openTrove({ ICR: toBN(dec(20, 18)), extraParams: { from: whale } })
+    await openTrove({ ICR: toBN(dec(4, 18)), extraParams: { from: alice } })
+
+    const price = await priceFeed.getPrice()
+    const ICR_Before = await troveManager.getCurrentICR(alice, price)
+
+    assert.equal(dec(1, 18), await relayer.par())
+
+    assert.equal(ICR_Before, dec(4, 18))
+
+    const MCR = (await troveManager.MCR()).toString()
+    assert.equal(MCR.toString(), '1100000000000000000')
+
+    // Alice increases debt to 180 LUSD, lowering her ICR to 1.11
+    const A_LUSDWithdrawal = await getNetBorrowingAmount(dec(130, 18))
+
+    const targetICR = toBN('1111111111111111111')
+    await withdrawLUSD({ ICR: targetICR, extraParams: { from: alice } })
+
+    const ICR_AfterWithdrawal = await troveManager.getCurrentICR(alice, price)
+    assert.isAtMost(th.getDifference(ICR_AfterWithdrawal, targetICR), 100)
+
+    // price drops to 1ETH:100LUSD, reducing Alice's ICR below MCR
+    //await priceFeed.setPrice('100000000000000000000');
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
+    await relayer.updatePar();
+
+    // Confirm system is not in Recovery Mode
+    assert.isFalse(await th.checkRecoveryMode(contracts));
+
+    // close Trove
+    await troveManager.liquidate(alice, { from: owner });
+
+    // check the Trove is successfully closed, and removed from sortedList
+    const status = (await troveManager.Troves(alice))[3]
+    assert.equal(status, 3)  // status enum 3 corresponds to "Closed by liquidation"
+    const alice_Trove_isInSortedList = await sortedTroves.contains(alice)
+    assert.isFalse(alice_Trove_isInSortedList)
+  })
 
   it("liquidate(): decreases ActivePool ETH and LUSDDebt by correct amounts", async () => {
     // --- SETUP ---
@@ -145,6 +188,46 @@ contract('TroveManager', async accounts => {
 
     // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
     await priceFeed.setPrice('100000000000000000000');
+
+    // Confirm system is not in Recovery Mode
+    assert.isFalse(await th.checkRecoveryMode(contracts));
+
+    /* close Bob's Trove. Should liquidate his ether and LUSD, 
+    leaving Alice’s ether and LUSD debt in the ActivePool. */
+    await troveManager.liquidate(bob, { from: owner });
+
+    // check ActivePool ETH and LUSD debt 
+    const activePool_ETH_After = (await activePool.getETH()).toString()
+    const activePool_RawEther_After = (await web3.eth.getBalance(activePool.address)).toString()
+    const activePool_LUSDDebt_After = (await activePool.getLUSDDebt()).toString()
+
+    assert.equal(activePool_ETH_After, A_collateral)
+    assert.equal(activePool_RawEther_After, A_collateral)
+    th.assertIsApproximatelyEqual(activePool_LUSDDebt_After, A_totalDebt)
+  })
+
+  it("liquidate(): decreases ActivePool ETH and LUSDDebt by correct amounts, rising par", async () => {
+    // --- SETUP ---
+    const { collateral: A_collateral, totalDebt: A_totalDebt } = await openTrove({ ICR: toBN(dec(10, 18)), extraParams: { from: alice } })
+    const { collateral: B_collateral, totalDebt: B_totalDebt } = await openTrove({ ICR: toBN(dec(111, 16)), extraParams: { from: bob } })
+
+    // --- TEST ---
+
+    // check ActivePool ETH and LUSD debt before
+    const activePool_ETH_Before = (await activePool.getETH()).toString()
+    const activePool_RawEther_Before = (await web3.eth.getBalance(activePool.address)).toString()
+    const activePool_LUSDDebt_Before = (await activePool.getLUSDDebt()).toString()
+
+    assert.equal(activePool_ETH_Before, A_collateral.add(B_collateral))
+    assert.equal(activePool_RawEther_Before, A_collateral.add(B_collateral))
+    th.assertIsApproximatelyEqual(activePool_LUSDDebt_Before, A_totalDebt.add(B_totalDebt))
+
+    // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
+    //await priceFeed.setPrice('100000000000000000000');
+
+    // move market enough to cause par to liquidate bob's trove
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
 
     // Confirm system is not in Recovery Mode
     assert.isFalse(await th.checkRecoveryMode(contracts));
@@ -198,6 +281,43 @@ contract('TroveManager', async accounts => {
     assert.equal(defaultPool_RawEther_After, defaultPool_ETH)
     th.assertIsApproximatelyEqual(defaultPool_LUSDDebt_After, B_totalDebt)
   })
+  it("liquidate(): increases DefaultPool ETH and LUSD debt by correct amounts, rising par", async () => {
+    // --- SETUP ---
+    const { collateral: A_collateral, totalDebt: A_totalDebt } = await openTrove({ ICR: toBN(dec(10, 18)), extraParams: { from: alice } })
+    const { collateral: B_collateral, totalDebt: B_totalDebt } = await openTrove({ ICR: toBN(dec(111, 16)), extraParams: { from: bob } })
+
+    // --- TEST ---
+
+    // check DefaultPool ETH and LUSD debt before
+    const defaultPool_ETH_Before = (await defaultPool.getETH())
+    const defaultPool_RawEther_Before = (await web3.eth.getBalance(defaultPool.address)).toString()
+    const defaultPool_LUSDDebt_Before = (await defaultPool.getLUSDDebt()).toString()
+
+    assert.equal(defaultPool_ETH_Before, '0')
+    assert.equal(defaultPool_RawEther_Before, '0')
+    assert.equal(defaultPool_LUSDDebt_Before, '0')
+
+    // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
+    //await priceFeed.setPrice('100000000000000000000');
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
+
+    // Confirm system is not in Recovery Mode
+    assert.isFalse(await th.checkRecoveryMode(contracts));
+
+    // close Bob's Trove
+    await troveManager.liquidate(bob, { from: owner });
+
+    // check after
+    const defaultPool_ETH_After = (await defaultPool.getETH()).toString()
+    const defaultPool_RawEther_After = (await web3.eth.getBalance(defaultPool.address)).toString()
+    const defaultPool_LUSDDebt_After = (await defaultPool.getLUSDDebt()).toString()
+
+    const defaultPool_ETH = th.applyLiquidationFee(B_collateral)
+    assert.equal(defaultPool_ETH_After, defaultPool_ETH)
+    assert.equal(defaultPool_RawEther_After, defaultPool_ETH)
+    th.assertIsApproximatelyEqual(defaultPool_LUSDDebt_After, B_totalDebt)
+  })
 
   it("liquidate(): removes the Trove's stake from the total stakes", async () => {
     // --- SETUP ---
@@ -212,6 +332,32 @@ contract('TroveManager', async accounts => {
 
     // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
     await priceFeed.setPrice('100000000000000000000');
+
+    // Confirm system is not in Recovery Mode
+    assert.isFalse(await th.checkRecoveryMode(contracts));
+
+    // Close Bob's Trove
+    await troveManager.liquidate(bob, { from: owner });
+
+    // check totalStakes after
+    const totalStakes_After = (await troveManager.totalStakes()).toString()
+    assert.equal(totalStakes_After, A_collateral)
+  })
+  it("liquidate(): removes the Trove's stake from the total stakes, rising par", async () => {
+    // --- SETUP ---
+    const { collateral: A_collateral, totalDebt: A_totalDebt } = await openTrove({ ICR: toBN(dec(10, 18)), extraParams: { from: alice } })
+    const { collateral: B_collateral, totalDebt: B_totalDebt } = await openTrove({ ICR: toBN(dec(111, 16)), extraParams: { from: bob } })
+
+    // --- TEST ---
+
+    // check totalStakes before
+    const totalStakes_Before = (await troveManager.totalStakes()).toString()
+    assert.equal(totalStakes_Before, A_collateral.add(B_collateral))
+
+    // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
+    //await priceFeed.setPrice('100000000000000000000');
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
 
     // Confirm system is not in Recovery Mode
     assert.isFalse(await th.checkRecoveryMode(contracts));
@@ -304,6 +450,41 @@ contract('TroveManager', async accounts => {
 
     // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
     await priceFeed.setPrice('100000000000000000000');
+
+    // Confirm system is not in Recovery Mode
+    assert.isFalse(await th.checkRecoveryMode(contracts));
+
+    // close Bob's Trove.  His ether*0.995 and LUSD should be added to the DefaultPool.
+    await troveManager.liquidate(bob, { from: owner });
+
+    /* check snapshots after. Total stakes should be equal to the  remaining stake then the system: 
+    10 ether, Alice's stake.
+     
+    Total collateral should be equal to Alice's collateral plus her pending ETH reward (Bob’s collaterale*0.995 ether), earned
+    from the liquidation of Bob's Trove */
+    const totalStakesSnapshot_After = (await troveManager.totalStakesSnapshot()).toString()
+    const totalCollateralSnapshot_After = (await troveManager.totalCollateralSnapshot()).toString()
+
+    assert.equal(totalStakesSnapshot_After, A_collateral)
+    assert.equal(totalCollateralSnapshot_After, A_collateral.add(th.applyLiquidationFee(B_collateral)))
+  })
+  it("liquidate(): updates the snapshots of total stakes and total collateral, rising par", async () => {
+    // --- SETUP ---
+    const { collateral: A_collateral, totalDebt: A_totalDebt } = await openTrove({ ICR: toBN(dec(10, 18)), extraParams: { from: alice } })
+    const { collateral: B_collateral, totalDebt: B_totalDebt } = await openTrove({ ICR: toBN(dec(111, 16)), extraParams: { from: bob } })
+
+    // --- TEST ---
+
+    // check snapshots before 
+    const totalStakesSnapshot_Before = (await troveManager.totalStakesSnapshot()).toString()
+    const totalCollateralSnapshot_Before = (await troveManager.totalCollateralSnapshot()).toString()
+    assert.equal(totalStakesSnapshot_Before, '0')
+    assert.equal(totalCollateralSnapshot_Before, '0')
+
+    // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
+    //await priceFeed.setPrice('100000000000000000000');
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
 
     // Confirm system is not in Recovery Mode
     assert.isFalse(await th.checkRecoveryMode(contracts));
@@ -557,6 +738,71 @@ contract('TroveManager', async accounts => {
 
     const TCR_After = (await th.getTCR(contracts)).toString()
     assert.equal(TCR_Before, TCR_After)
+  })
+  it("liquidate(): Given the same price and no other trove changes, complete Pool offsets restore the TCR to its value prior to the defaulters opening troves, rising par", async () => {
+    await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
+    // Whale provides LUSD to SP
+    const spDeposit = toBN(dec(100, 24))
+    await openTrove({ ICR: toBN(dec(4, 18)), extraLUSDAmount: spDeposit, extraParams: { from: whale } })
+    await stabilityPool.provideToSP(spDeposit, ZERO_ADDRESS, { from: whale })
+
+    await openTrove({ ICR: toBN(dec(10, 18)), extraParams: { from: alice } })
+    await openTrove({ ICR: toBN(dec(70, 18)), extraParams: { from: bob } })
+    await openTrove({ ICR: toBN(dec(2, 18)), extraParams: { from: carol } })
+    await openTrove({ ICR: toBN(dec(200, 18)), extraParams: { from: dennis } })
+
+    const TCR_Before = await th.getTCR(contracts)
+    const poolBefore = await defaultPool.getLUSDDebt()
+    const debtBefore = await troveManager.getEntireSystemDebt(await troveManager.accumulatedRate())
+    const parBefore = await relayer.par()
+    const accRateBefore = await troveManager.accumulatedRate()
+    const rateBefore = await relayer.rate()
+
+    await openTrove({ ICR: toBN(dec(202, 16)), extraParams: { from: defaulter_1 } })
+    await openTrove({ ICR: toBN(dec(190, 16)), extraParams: { from: defaulter_2 } })
+    await openTrove({ ICR: toBN(dec(196, 16)), extraParams: { from: defaulter_3 } })
+    await openTrove({ ICR: toBN(dec(200, 16)), extraParams: { from: defaulter_4 } })
+
+    assert.isTrue((await sortedTroves.contains(defaulter_1)))
+    assert.isTrue((await sortedTroves.contains(defaulter_2)))
+    assert.isTrue((await sortedTroves.contains(defaulter_3)))
+    assert.isTrue((await sortedTroves.contains(defaulter_4)))
+
+    // Price drop
+    await priceFeed.setPrice(dec(100, 18))
+
+    // Confirm system is not in Recovery Mode
+    assert.isFalse(await th.checkRecoveryMode(contracts));
+    updateTx = await relayer.getParAndRate()
+    const rateAfter = await relayer.rate()
+    const [rate, pOutput, iOutput, error] = th.getEmittedRateUpdateValues(updateTx)
+
+    // All defaulters liquidated
+    await troveManager.liquidate(defaulter_1)
+    assert.isFalse((await sortedTroves.contains(defaulter_1)))
+
+    await troveManager.liquidate(defaulter_2)
+    assert.isFalse((await sortedTroves.contains(defaulter_2)))
+
+    await troveManager.liquidate(defaulter_3)
+    assert.isFalse((await sortedTroves.contains(defaulter_3)))
+
+    await troveManager.liquidate(defaulter_4)
+    assert.isFalse((await sortedTroves.contains(defaulter_4)))
+
+    // Price bounces back
+    await priceFeed.setPrice(dec(200, 18))
+
+    const debtAfter = await troveManager.getEntireSystemDebt(await troveManager.accumulatedRate())
+
+    // debt grew a little from interest
+    assert.isAtMost(th.getDifference(debtBefore, debtAfter), 2000000000000000000)
+
+    // TCR drops a little from interest
+    const TCR_After = await th.getTCR(contracts)
+    assert.isTrue(TCR_After.lt(TCR_Before))
+    assert.isAtMost(th.getDifference(TCR_Before, TCR_After), 50000000000)
   })
 
 
@@ -1246,7 +1492,7 @@ contract('TroveManager', async accounts => {
     assert.isTrue((await sortedTroves.contains(bob)))
     assert.isTrue((await sortedTroves.contains(carol)))
 
-    const TCR_Before = (await th.getTCR(contracts)).toString()
+    const TCR_Before = await th.getTCR(contracts)
     const listSize_Before = (await sortedTroves.getSize()).toString()
 
     assert.isTrue((await troveManager.getCurrentICR(whale, price)).gte(mv._MCR))

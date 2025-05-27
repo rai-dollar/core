@@ -31,7 +31,7 @@ contract RateControl is Ownable, CheckContract, IRateControl {
     int256 public OUTPUT_LOWER_BOUND = 0; // [TWENTY_SEVEN_DECIMAL_NUMBER]
 
     // The max delta per hour, 0.5%
-    int256 public constant MAX_DELTA_PER_HOUR = 158153903837946259; // [TWENTY_SEVEN_DECIMAL_NUMBER]
+    uint256 public constant MAX_DELTA_PER_HOUR = 158153903837946259; // [TWENTY_SEVEN_DECIMAL_NUMBER]
 
     // The integral term (sum of error at each update call minus the leak applied at every call)
     int256 public errorIntegral; // [TWENTY_SEVEN_DECIMAL_NUMBER]
@@ -130,35 +130,58 @@ contract RateControl is Ownable, CheckContract, IRateControl {
 
         return boundedPIOutput;
     }
-    /*
-    * @notice If output has reached a bound, undo integral accumulation
-    * @param boundedPiOutput The bounded output computed from the error and integral terms
-    * @param newErrorIntegral The updated errorIntegral, including the new area
-    * @param newArea The new area that was already added to the integral that will subtracted if output has reached a bound
-    */
-    function clampErrorIntegral(int256 boundedPiOutput, int256 newErrorIntegral,
-                                int256 newArea, uint256 timeElapsed)
-        internal
+
+    function max(int256 a, int256 b) internal pure returns (int256) {
+        return a >= b ? a : b;
+    }
+
+    function min(int256 a, int256 b) internal pure returns (int256) {
+        return a < b ? a : b;
+    }
+
+    /**
+     * @notice Bounds the raw PI-controller output by both
+     *         (a) absolute limits  and  (b) maximum slew-rate,
+     *         and clamps the error-integral once if a bound is hit.
+     *
+     * @param piOutput       Raw   P + I output for this step
+     * @param errorIntegral  Current accumulated integral term
+     * @param newArea        Signed area added to the integral this step
+     * @param timeElapsed    Seconds since the previous update
+     *
+     * @return boundedOutput   Output after both bounds are applied
+     * @return clampedIntegral Possibly-clamped integral term
+     */
+    function boundAndClampPiOutput(
+        int256 piOutput,
+        int256 errorIntegral,
+        int256 newArea,
+        uint256 timeElapsed
+    )
+        public
         view
-        returns (int256)
+        returns (int256 boundedOutput, int256 clampedIntegral)
     {
-        int256 clampedErrorIntegral = newErrorIntegral; 
+        boundedOutput   = piOutput;
+        clampedIntegral = errorIntegral;
 
-        int256 outputDelta = boundedPiOutput - lastOutput;
-        int256 maxAllowedDelta = int256(MAX_DELTA_PER_HOUR) * int256(timeElapsed) / 3600;
+        /* ── compute the per-step Δ envelope ───────────────────────────── */
+        int256 maxDelta = int256(MAX_DELTA_PER_HOUR * timeElapsed / 3600);
+        int256 upperBound = int256(min(OUTPUT_UPPER_BOUND, lastOutput + maxDelta));
+        int256 lowerBound = int256(max(OUTPUT_LOWER_BOUND, lastOutput - maxDelta));
 
-        // --- Output bound clamping ---
-        // Output reached bound, undo error accumulation
-        if (both(both(boundedPiOutput == OUTPUT_LOWER_BOUND, newArea < 0), errorIntegral < 0)) {
-            clampedErrorIntegral -= newArea;
-        } else if (both(both(boundedPiOutput == OUTPUT_UPPER_BOUND, newArea > 0), errorIntegral > 0)) {
-            clampedErrorIntegral -= newArea;
-        } else if (outputDelta > maxAllowedDelta || outputDelta < -maxAllowedDelta) {
-            clampedErrorIntegral -= newArea;
+        /* ── apply bounds & optional integral clamp ────────────────────── */
+        if (piOutput < lowerBound) {
+            boundedOutput = lowerBound;
+            if (newArea < 0 && errorIntegral < 0) {
+                clampedIntegral -= newArea;
+            }
+        } else if (piOutput > upperBound) {
+            boundedOutput = upperBound;
+            if (newArea > 0 && errorIntegral > 0) {
+                clampedIntegral -= newArea;
+            }
         }
-
-    
-        return clampedErrorIntegral;
     }
 
     /*
@@ -208,10 +231,13 @@ contract RateControl is Ownable, CheckContract, IRateControl {
 
         (int256 pOutput, int256 iOutput) = getRawPiOutput(error, newErrorIntegral);
 
-        int256 boundedPiOutput = boundPiOutput(CO_BIAS + pOutput + iOutput);
+        //int256 boundedPiOutput = boundPiOutput(CO_BIAS + pOutput + iOutput);
 
         // If output has reached a bound, undo integral accumulation
-        errorIntegral = clampErrorIntegral(boundedPiOutput, newErrorIntegral, newArea, timeElapsed);
+        //errorIntegral = clampErrorIntegral(boundedPiOutput, newErrorIntegral, newArea, timeElapsed);
+
+        int256 boundedPiOutput;
+        (boundedPiOutput, errorIntegral) = boundAndClampPiOutput(CO_BIAS + pOutput + iOutput, newErrorIntegral, newArea, timeElapsed);
 
         lastUpdateTime = block.timestamp;
         lastError = error;
@@ -225,11 +251,13 @@ contract RateControl is Ownable, CheckContract, IRateControl {
     */
 
     function getNextPiOutput(int256 error, uint256 timeElapsed) public view returns (int256, int256, int256) {
-        (int256 newErrorIntegral,) = getNextErrorIntegral(error, timeElapsed);
+        (int256 newErrorIntegral,int256 newArea) = getNextErrorIntegral(error, timeElapsed);
         (int256 pOutput, int256 iOutput) = getRawPiOutput(error, newErrorIntegral);
         int256 piOutput = pOutput + iOutput;
 
-        int256 boundedPiOutput = boundPiOutput(CO_BIAS + piOutput);
+        //int256 boundedPiOutput = boundPiOutput(CO_BIAS + piOutput);
+        int256 boundedPiOutput;
+        (boundedPiOutput,) = boundAndClampPiOutput(CO_BIAS + pOutput + iOutput, newErrorIntegral, newArea, timeElapsed);
 
         return (boundedPiOutput, pOutput, iOutput);
     }

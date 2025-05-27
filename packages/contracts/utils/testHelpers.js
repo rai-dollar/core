@@ -382,6 +382,36 @@ class TestHelper {
     throw ("The transaction logs do not contain a redemption event")
   }
 
+  static getEmittedParUpdateValues(updateTx) {
+    for (let i = 0; i < updateTx.logs.length; i++) {
+      if (updateTx.logs[i].event === "ParUpdated") {
+
+        const par = updateTx.logs[i].args[0]
+        const pOutput = updateTx.logs[i].args[1]
+        const iOutput = updateTx.logs[i].args[2]
+        const error = updateTx.logs[i].args[3]
+
+        return [par, pOutput, iOutput, error]
+      }
+    }
+    throw ("The transaction logs do not contain a par update event")
+  }
+
+  static getEmittedRateUpdateValues(updateTx) {
+    for (let i = 0; i < updateTx.logs.length; i++) {
+      if (updateTx.logs[i].event === "RateUpdated") {
+
+        const rate = updateTx.logs[i].args[0]
+        const pOutput = updateTx.logs[i].args[1]
+        const iOutput = updateTx.logs[i].args[2]
+        const error = updateTx.logs[i].args[3]
+
+        return [rate, pOutput, iOutput, error]
+      }
+    }
+    throw ("The transaction logs do not contain a rate update event")
+  }
+
   static getEmittedLiquidationValues(liquidationTx) {
     for (let i = 0; i < liquidationTx.logs.length; i++) {
       if (liquidationTx.logs[i].event === "Liquidation") {

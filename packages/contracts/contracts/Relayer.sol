@@ -12,14 +12,17 @@ import "./v0.8.24/Dependencies/CheckContract.sol";
 
 contract Relayer is Ownable, CheckContract {
     uint256 constant DECIMAL_PRECISION = 1e18;
-    uint256 constant RATE_PRECISION = 1e27;
     int256 constant DECIMAL_PRECISION_I = 1e18;
-    uint256 public constant MAX_PAR_STALENESS = 60;
+    uint256 constant RATE_PRECISION = 1e27;
+    int256 constant RATE_PRECISION_I = 1e27;
+    uint256 public constant MAX_PAR_STALENESS = 600;
     uint256 public constant MAX_RATE_STALENESS = 300;
+
     uint256 constant PAR_EPSILON_1 = 1 * 10**15; // $0.001
     uint256 constant PAR_EPSILON_2 = 3 * 10**15; // $0.003
-    uint256 constant RATE_EPSILON_1 = 1 * 10**15; // $0.001
-    uint256 constant RATE_EPSILON_2 = 3 * 10**15; // $0.003
+
+    uint256 constant RATE_EPSILON_1 = 1 * 10**24; // $0.001
+    uint256 constant RATE_EPSILON_2 = 3 * 10**24; // $0.003
    
     uint256 public lastParUpdateTime;
     uint256 public lastRateUpdateTime;
@@ -68,15 +71,21 @@ contract Relayer is Ownable, CheckContract {
         _renounceOwnership();
     }
 
-    function _controlError(uint256 market) internal pure returns (int256) {
+    function _rateControlError(uint256 market) internal pure returns (int256) {
+        return RATE_PRECISION_I - int256(market) * 10**9;
+    }
+
+    function _parControlError(uint256 market) internal pure returns (int256) {
         return DECIMAL_PRECISION_I - int256(market);
     }
 
     /*
     * @notice Sets error to 0 inside a deadband and scales it up towards the outerband
     * @param error The system error EIGHTEEN_DECIMAL_NUMBER
+    * @param eps_1 lower band EIGHTEEN_DECIMAL_NUMBER
+    * @param eps_2 outer band EIGHTEEN_DECIMAL_NUMBER
     */
-    function _rampError(int256 error, uint256 eps_1, uint256 eps_2) internal pure returns (int256 scaledError) {
+    function _rampErrorDec(int256 error, uint256 eps_1, uint256 eps_2) internal pure returns (int256 scaledError) {
         int256 absError = error >= 0 ? error : -error;
 
         if (absError <= int256(eps_1)) {
@@ -93,6 +102,31 @@ contract Relayer is Ownable, CheckContract {
         uint256 rampFactor = (rampNumerator * DECIMAL_PRECISION) / rampDenominator;
 
         scaledError = (error * int256(rampFactor)) / DECIMAL_PRECISION_I;
+    }
+
+    /*
+    * @notice Sets error to 0 inside a deadband and scales it up towards the outerband
+    * @param error The system error TWENTY_SEVEN_DECIMAL_NUMBER
+    * @param eps_1 lower band TWENTY_SEVEN_DECIMAL_NUMBER
+    * @param eps_2 outer band TWENTY_SEVEN_DECIMAL_NUMBER
+    */
+    function _rampErrorRay(int256 error, uint256 eps_1, uint256 eps_2) internal pure returns (int256 scaledError) {
+        int256 absError = error >= 0 ? error : -error;
+
+        if (absError <= int256(eps_1)) {
+            return 0;
+        }
+
+        if (absError >= int256(eps_2)) {
+            return error;
+        }
+
+        // Ramp = (|e| - ε1) / (ε2 - ε1)
+        uint256 rampNumerator = uint256(absError - int256(eps_1));
+        uint256 rampDenominator = eps_2 - eps_1;
+        uint256 rampFactor = (rampNumerator * RATE_PRECISION) / rampDenominator;
+
+        scaledError = (error * int256(rampFactor)) / RATE_PRECISION_I;
     }
 
     // Get par and rate, update if they are stale
@@ -118,10 +152,10 @@ contract Relayer is Ownable, CheckContract {
     // Controller outputs delta rate d, st. 1+d=per-sec rate
         if (block.timestamp - lastRateUpdateTime > MAX_RATE_STALENESS) {
             uint256 marketPrice = marketOracle.price();
-            return RATE_PRECISION + _updateRate(marketPrice);
+            return _updateRate(marketPrice);
         }
 
-        return RATE_PRECISION + rate;
+        return rate;
     }
 
     function getParAndRate() external returns (uint256, uint256) {
@@ -139,7 +173,7 @@ contract Relayer is Ownable, CheckContract {
 
     function _updatePar(uint256 marketPrice) internal returns (uint256) {
         int256 error = _controlError(marketPrice);
-        int256 rampedError =  _rampError(error, PAR_EPSILON_1, PAR_EPSILON_2);
+        int256 rampedError =  _rampErrorDec(error, PAR_EPSILON_1, PAR_EPSILON_2);
 
         (int256 newPar, int256 pOutput, int256 iOutput) = parControl.update(rampedError);
 
@@ -159,7 +193,7 @@ contract Relayer is Ownable, CheckContract {
 
     function _updateRate(uint256 market) internal returns (uint256) {
         int256 error = _controlError(market);
-        int256 rampedError =  _rampError(error, RATE_EPSILON_1, RATE_EPSILON_2);
+        int256 rampedError =  _rampErrorRay(error, RATE_EPSILON_1, RATE_EPSILON_2);
 
         (int256 newRate, int256 pOutput, int256 iOutput) = rateControl.update(rampedError);
         emit RateUpdated(newRate, pOutput, iOutput, rampedError);

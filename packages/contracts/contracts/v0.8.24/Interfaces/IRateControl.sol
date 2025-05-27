@@ -2,7 +2,7 @@ pragma solidity 0.8.24;
 
 interface IRateControl {
     function setAddresses(address _relayerAddress) external;
-    function boundPiOutput(int256 piOutput) external view returns (int256);
+    function boundAndClampPiOutput(int256 piOutput, int256 errorIntegral, int256 newArea, uint256 timeElapsed) external view returns (int256, int256);
     function CO_BIAS() external view returns (int256);
     function controlVariable() external view returns (bytes32);
     function elapsed() external view returns (uint256);

@@ -325,7 +325,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         address[] memory borrowers = new address[](1);
         borrowers[0] = _borrower;
-        (uint par, uint interestRate) = relayer.updateParAndRate();
+        (uint par, uint interestRate) = relayer.getParAndRate();
         _drip(interestRate);
         batchLiquidateTroves(borrowers);
     }
@@ -453,7 +453,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         LiquidationTotals memory totals;
 
-        (uint par, uint interestRate) = relayer.updateParAndRate();
+        (uint par, uint interestRate) = relayer.getParAndRate();
         _drip(interestRate);
         vars.price = priceFeed.fetchPrice();
         vars.LUSDInSPForOffsets = stabilityPoolCached.getMaxAmountToOffset();
