@@ -219,6 +219,9 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     uint public lastETHError_Offset;
     uint public lastLUSDLossError_Offset;
 
+    // Error trackers for the error correction in the distributeToSp calculation
+    uint public lastLUSDGainError;
+
     // --- Events ---
 
     event StabilityPoolETHBalanceUpdated(uint _newBalance);
@@ -250,7 +253,10 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     event LQTYPaidToDepositor(address indexed _depositor, uint _LQTY);
     event LQTYPaidToFrontEnd(address indexed _frontEnd, uint _LQTY);
     event EtherSent(address _to, uint _amount);
-    event DistributeToSP(uint _amount);
+    event DistributeToSP(uint P, uint newP, uint lusdGain, uint totalLUSDDeposits);
+    // TODO: remove this event. Was used for debugging
+    event UpdateRewardSum(uint currentP, uint newP, uint newProductFactor, uint lusdLoss);
+    event Offset(uint collToAdd, uint debtToOffset, uint totalLUSD, uint lusdLoss, uint ethGain);
 
     // --- Contract setters ---
 
@@ -525,6 +531,9 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         _updateRewardSumAndProduct(ETHGainPerUnitStaked, LUSDLossPerUnitStaked);  // updates S and P
 
         _moveOffsetCollAndDebt(_collToAdd, _debtToOffset, _nDebtToOffset);
+
+        emit Offset(_collToAdd, _debtToOffset, totalLUSD, LUSDLossPerUnitStaked, ETHGainPerUnitStaked);
+
     }
 
     // --- Offset helper functions ---
@@ -623,6 +632,8 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         assert(newP > 0);
         P = newP;
 
+        emit UpdateRewardSum(currentP, newP, newProductFactor, _LUSDLossPerUnitStaked);
+
         emit P_Updated(newP);
     }
 
@@ -641,7 +652,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     function _decreaseLUSD(uint _amount) internal {
         uint newTotalLUSDDeposits = totalLUSDDeposits.sub(_amount);
-        require(newTotalLUSDDeposits >= MIN_LUSD_IN_SP, "Withdrawal must leave totalBoldDeposits >= MIN_LUSD_IN_SP");
+        require(newTotalLUSDDeposits >= MIN_LUSD_IN_SP, "Withdrawal must leave totalLUSDDeposits >= MIN_LUSD_IN_SP");
         totalLUSDDeposits = newTotalLUSDDeposits;
         emit StabilityPoolLUSDBalanceUpdated(newTotalLUSDDeposits);
     }
@@ -998,19 +1009,26 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
         require(totalLUSDDeposits > 0, "StabilityPool: can't distribute when totalLUSDDeposits == 0");
 
-        uint256 lusdGainPerUnitStaked = (lusdGain * 1e18) / totalLUSDDeposits + 1;
+        // TODO accept the round down here or add + 1
+        //uint256 lusdGainPerUnitStaked = lusdGain.mul(DECIMAL_PRECISION).div(totalLUSDDeposits) + 1;
+
+        // error correction
+        uint256 numerator = lusdGain.mul(DECIMAL_PRECISION).add(lastLUSDGainError);
+        uint256 lusdGainPerUnitStaked = numerator.div(totalLUSDDeposits); 
+        lastLUSDGainError = numerator - lusdGainPerUnitStaked * totalLUSDDeposits;
 
         totalLUSDDeposits += lusdGain;
 
         uint256 currentP = P;
-        uint256 newProductFactor = 1e18 + lusdGainPerUnitStaked;
+        uint256 newProductFactor = DECIMAL_PRECISION + lusdGainPerUnitStaked;
 
-        uint256 newP = (currentP * newProductFactor) / 1e18;
-        require(newP > 0, "New P must be > 0");
+        uint256 newP = currentP.mul(newProductFactor).div(DECIMAL_PRECISION);
+        require(newP > currentP, "P overflow");
+
+        emit DistributeToSP(P, newP, lusdGain, totalLUSDDeposits);
 
         P = newP;
 
         emit P_Updated(newP);
-        emit DistributeToSP(lusdGain);
     }
 }

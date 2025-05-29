@@ -426,6 +426,38 @@ class TestHelper {
     throw ("The transaction logs do not contain a liquidation event")
   }
 
+  static getEmittedPUpdated(pUpdatedTx) {
+    for (let i = 0; i < pUpdatedTx.logs.length; i++) {
+      if (pUpdatedTx.logs[i].event === "P_Updated") {
+        const newP = pUpdatedTx.logs[i].args[0]
+
+        return newP
+      }
+    }
+    throw ("The transaction logs do not contain a P_Updated event")
+  }
+
+  static getEmittedDistributeToSP(tx) {
+    for (let i = 0; i < tx.logs.length; i++) {
+      if (tx.logs[i].event === "DistributeToSP") {
+        const lusdGain = tx.logs[i].args[0]
+
+        return lusdGain
+      }
+    }
+    throw ("The transaction logs do not contain a DistributeToSP event")
+  }
+  static getEmittedOffset(tx) {
+    for (let i = 0; i < tx.logs.length; i++) {
+      if (tx.logs[i].event === "Offset") {
+        const debt = tx.logs[i].args[0]
+
+        return debt
+      }
+    }
+    throw ("The transaction logs do not contain an Offset event")
+  }
+
   static getEmittedTroveUpdateValues(troveUpdateTx) {
     for (let i = 0; i < troveUpdateTx.logs.length; i++) {
       if (troveUpdateTx.logs[i].event === "TroveUpdated") {
@@ -509,6 +541,26 @@ class TestHelper {
     }
 
     throw (`The transaction logs do not contain event ${eventName} and arg ${argName}`)
+  }
+
+  static getRawEventArgByName(tx, iFace, contractAddr, eventName, argName) {
+    const log = tx.receipt.rawLogs                 // all logs in the tx
+      .filter(l => l.address === contractAddr)  // keep SP only
+      .map   (l => iFace.parseLog(l))                  // ABI‑decode
+      .find  (l => l.name === eventName);         // pick the one
+
+    return log.args[argName]
+  }
+
+  static getAllRawEventArgByName(tx, iFace, contractAddr, eventName, argName) {
+    const log = tx.receipt.rawLogs                 // all logs in the tx
+      .filter(l => l.address === contractAddr)  // keep SP only
+      .map   (l => iFace.parseLog(l))                  // ABI‑decode
+      .find  (l => l.name === eventName);         // pick the one
+
+    return log
+
+    //throw (`The transaction logs do not contain event ${eventName} and arg ${argName}`)
   }
 
   static getAllEventsByName(tx, eventName) {

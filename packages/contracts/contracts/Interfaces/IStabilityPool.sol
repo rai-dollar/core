@@ -66,6 +66,8 @@ interface IStabilityPool {
     event LQTYPaidToDepositor(address indexed _depositor, uint _LQTY);
     event LQTYPaidToFrontEnd(address indexed _frontEnd, uint _LQTY);
     event EtherSent(address _to, uint _amount);
+    event DistributeToSP(uint _amount);
+    event Offset(uint _debtToOffset);
 
     // --- Functions ---
 

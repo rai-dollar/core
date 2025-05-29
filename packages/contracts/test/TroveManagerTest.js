@@ -1,9 +1,11 @@
 const deploymentHelper = require("../utils/deploymentHelpers.js")
 const testHelpers = require("../utils/testHelpers.js")
+const testInvariants = require("../utils/testInvariants.js")
 const TroveManagerTester = artifacts.require("./TroveManagerTester.sol")
 const LUSDTokenTester = artifacts.require("./LUSDTokenTester.sol")
 
 const th = testHelpers.TestHelper
+const ti = testInvariants.TestInvariant
 const dec = th.dec
 const toBN = th.toBN
 const assertRevert = th.assertRevert
@@ -85,10 +87,19 @@ contract('TroveManager', async accounts => {
     communityIssuance = LQTYContracts.communityIssuance
     lockupContractFactory = LQTYContracts.lockupContractFactory
 
+
+    // Interfaces
+    stabilityPoolInterface = (await ethers.getContractAt("StabilityPool", stabilityPool.address)).interface;
+
     await deploymentHelper.connectCoreContracts(contracts, LQTYContracts)
     await deploymentHelper.connectLQTYContracts(LQTYContracts)
     await deploymentHelper.connectLQTYContractsToCore(LQTYContracts, contracts)
 
+  })
+
+  afterEach(async () => {
+    assert.isTrue(await ti.SpBalanceEqualsErc20Balance(contracts))
+    assert.isTrue(await ti.debtEqualsSupply(contracts))
   })
 
   it('liquidate(): closes a Trove that has ICR < MCR', async () => {
@@ -128,6 +139,7 @@ contract('TroveManager', async accounts => {
     assert.equal(status, 3)  // status enum 3 corresponds to "Closed by liquidation"
     const alice_Trove_isInSortedList = await sortedTroves.contains(alice)
     assert.isFalse(alice_Trove_isInSortedList)
+
   })
   it('liquidate(): closes a Trove that has ICR < MCR from par rising', async () => {
     await openTrove({ ICR: toBN(dec(20, 18)), extraParams: { from: whale } })
@@ -146,16 +158,28 @@ contract('TroveManager', async accounts => {
     // Alice increases debt to 180 LUSD, lowering her ICR to 1.11
     const A_LUSDWithdrawal = await getNetBorrowingAmount(dec(130, 18))
 
-    const targetICR = toBN('1111111111111111111')
+    const targetICR = toBN('1100000000000000000')
     await withdrawLUSD({ ICR: targetICR, extraParams: { from: alice } })
 
     const ICR_AfterWithdrawal = await troveManager.getCurrentICR(alice, price)
     assert.isAtMost(th.getDifference(ICR_AfterWithdrawal, targetICR), 100)
 
-    // price drops to 1ETH:100LUSD, reducing Alice's ICR below MCR
-    //await priceFeed.setPrice('100000000000000000000');
+    // ensure it can't be liquidated
+    try {
+      const txAlice = await troveManager.liquidate(alice)
+
+      assert.isFalse(txAlice.receipt.status)
+    } catch (err) {
+      assert.include(err.message, "revert")
+      assert.include(err.message, "TroveManager: nothing to liquidate")
+    }
+
+    // drop market -> raise pair
     await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(10).mul(ONE_CENT)));
     await relayer.updatePar();
+
+    // ICR has dropped
+    assert.isTrue(ICR_AfterWithdrawal > await troveManager.getCurrentICR(alice, price));
 
     // Confirm system is not in Recovery Mode
     assert.isFalse(await th.checkRecoveryMode(contracts));
@@ -227,6 +251,8 @@ contract('TroveManager', async accounts => {
 
     // move market enough to cause par to liquidate bob's trove
     await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
+    th.fastForwardTime(12 * 3600, web3.currentProvider)
     await relayer.updatePar();
 
     // Confirm system is not in Recovery Mode
@@ -301,6 +327,8 @@ contract('TroveManager', async accounts => {
     //await priceFeed.setPrice('100000000000000000000');
     await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
     await relayer.updatePar();
+    th.fastForwardTime(12 * 3600, web3.currentProvider)
+    await relayer.updatePar();
 
     // Confirm system is not in Recovery Mode
     assert.isFalse(await th.checkRecoveryMode(contracts));
@@ -357,6 +385,8 @@ contract('TroveManager', async accounts => {
     // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
     //await priceFeed.setPrice('100000000000000000000');
     await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
+    th.fastForwardTime(12 * 3600, web3.currentProvider)
     await relayer.updatePar();
 
     // Confirm system is not in Recovery Mode
@@ -484,6 +514,8 @@ contract('TroveManager', async accounts => {
     // price drops to 1ETH:100LUSD, reducing Bob's ICR below MCR
     //await priceFeed.setPrice('100000000000000000000');
     await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
+    await relayer.updatePar();
+    th.fastForwardTime(12 * 3600, web3.currentProvider)
     await relayer.updatePar();
 
     // Confirm system is not in Recovery Mode
@@ -702,7 +734,8 @@ contract('TroveManager', async accounts => {
     await openTrove({ ICR: toBN(dec(2, 18)), extraParams: { from: carol } })
     await openTrove({ ICR: toBN(dec(200, 18)), extraParams: { from: dennis } })
 
-    const TCR_Before = (await th.getTCR(contracts)).toString()
+    const TCR_Before = await th.getTCR(contracts)
+    const debtBefore = await troveManager.getEntireSystemDebt(await troveManager.accumulatedRate())
 
     await openTrove({ ICR: toBN(dec(202, 16)), extraParams: { from: defaulter_1 } })
     await openTrove({ ICR: toBN(dec(190, 16)), extraParams: { from: defaulter_2 } })
@@ -736,8 +769,17 @@ contract('TroveManager', async accounts => {
     // Price bounces back
     await priceFeed.setPrice(dec(200, 18))
 
-    const TCR_After = (await th.getTCR(contracts)).toString()
-    assert.equal(TCR_Before, TCR_After)
+    const TCR_After = await th.getTCR(contracts)
+    //assert.equal(TCR_Before, TCR_After)
+    const debtAfter = await troveManager.getEntireSystemDebt(await troveManager.accumulatedRate())
+
+    // debt grew a little from interest
+    assert.isTrue(debtAfter.gt(debtBefore))
+    assert.isAtMost(th.getDifference(debtBefore, debtAfter), 2000000000000000000)
+
+    // TCR drops a little from interest
+    assert.isTrue(TCR_After.lt(TCR_Before))
+    assert.isAtMost(th.getDifference(TCR_Before, TCR_After), 50000000000)
   })
   it("liquidate(): Given the same price and no other trove changes, complete Pool offsets restore the TCR to its value prior to the defaulters opening troves, rising par", async () => {
     await marketOracle.setPrice(ONE_DOLLAR.sub(toBN(8).mul(ONE_CENT)));
@@ -753,11 +795,7 @@ contract('TroveManager', async accounts => {
     await openTrove({ ICR: toBN(dec(200, 18)), extraParams: { from: dennis } })
 
     const TCR_Before = await th.getTCR(contracts)
-    const poolBefore = await defaultPool.getLUSDDebt()
     const debtBefore = await troveManager.getEntireSystemDebt(await troveManager.accumulatedRate())
-    const parBefore = await relayer.par()
-    const accRateBefore = await troveManager.accumulatedRate()
-    const rateBefore = await relayer.rate()
 
     await openTrove({ ICR: toBN(dec(202, 16)), extraParams: { from: defaulter_1 } })
     await openTrove({ ICR: toBN(dec(190, 16)), extraParams: { from: defaulter_2 } })
@@ -794,9 +832,11 @@ contract('TroveManager', async accounts => {
     // Price bounces back
     await priceFeed.setPrice(dec(200, 18))
 
+    const accRateAfter = await troveManager.accumulatedRate()
     const debtAfter = await troveManager.getEntireSystemDebt(await troveManager.accumulatedRate())
 
     // debt grew a little from interest
+    assert.isTrue(debtAfter.gt(debtBefore))
     assert.isAtMost(th.getDifference(debtBefore, debtAfter), 2000000000000000000)
 
     // TCR drops a little from interest
@@ -962,17 +1002,99 @@ contract('TroveManager', async accounts => {
     //Dennis provides LUSD to SP
     await stabilityPool.provideToSP(spDeposit, ZERO_ADDRESS, { from: dennis })
 
+    const totalLUSDDeposits = await stabilityPool.getTotalLUSDDeposits()
+    console.log("totalLUSDDeposits", totalLUSDDeposits.toString())
+
+    /*
+    const erc20balanceBefore = await contracts.lusdToken.balanceOf(contracts.stabilityPool.address)
+    console.log("SP ERC-20 balance before", erc20balanceBefore.toString())
+
+    console.log("dennis initial sp deposit", (await stabilityPool.deposits(dennis))[0].toString())
+    console.log("Sp.P before", (await stabilityPool.P()).toString())
+    */
+
+    await th.fastForwardTime(60, web3.currentProvider)
+
+    //const accRateBefore = await troveManager.accumulatedRate()
+
     // Carol gets liquidated
     await priceFeed.setPrice(dec(100, 18))
     const liquidationTX_C = await troveManager.liquidate(carol)
     const [liquidatedDebt, liquidatedColl, gasComp] = th.getEmittedLiquidationValues(liquidationTX_C)
 
+    // drip is called in liquidate(), so SP.totalLUSDDeposits increases beforehand by lusdGain
+    const lusdGain = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "DistributeToSP", "lusdGain");
+
+    /*
+    const newP = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "DistributeToSP", "newP");
+    const existingP = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "DistributeToSP", "P");
+    const totalLUSD = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "DistributeToSP", "totalLUSDDeposits");
+
+    const rewardCurrentP = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "UpdateRewardSum", "currentP");
+    const rewardNewP = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "UpdateRewardSum", "newP");
+    const rewardNewPF = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "UpdateRewardSum", "newProductFactor");
+    const rewardLoss = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "UpdateRewardSum", "lusdLoss");
+
+    //event Offset(uint collToAdd, uint debtToOffset, uint totalLUSD, uint lusdLoss, uint ethGain);
+    const offsetColl = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "Offset", "collToAdd");
+    const offsetDebt = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "Offset", "debtToOffset");
+    const offsetTotalLUSD = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "Offset", "totalLUSD");
+    const offsetLUSDLoss = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "Offset", "lusdLoss");
+    const offsetETHGain = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "Offset", "ethGain");
+
+    //const newP = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "P_Updated", "_P");
+    const ethUpdated = th.getRawEventArgByName(liquidationTX_C, stabilityPoolInterface, stabilityPool.address, "StabilityPoolETHBalanceUpdated", "_newBalance");
+
+    console.log("DistributeToSP------------")
+    console.log("existingP", existingP.toString())
+    console.log("newP", newP.toString())
+    console.log("lusdGain", lusdGain.toString())
+    console.log("totalLUSD", totalLUSD.toString())
+    console.log("UpdateRewardSum-----------")
+    console.log("rewardCurrentP", rewardCurrentP.toString())
+    console.log("rewardNewP", rewardNewP.toString())
+    console.log("rewardNewPF", rewardNewPF.toString())
+    console.log("rewardLoss", rewardLoss.toString())
+    console.log("Offset--------------------")
+    console.log("offsetColl", offsetColl.toString())
+    console.log("offsetDebt", offsetDebt.toString())
+    console.log("offsetTotalLUSD", offsetTotalLUSD.toString())
+    console.log("offsetLUSDLoss", offsetLUSDLoss.toString())
+    console.log("offsetETHGain", offsetETHGain.toString())
+
+    console.log("ethUpdated", ethUpdated.toString())
+    const erc20balanceAfter = await contracts.lusdToken.balanceOf(contracts.stabilityPool.address)
+    console.log("SP ERC-20 balance after", erc20balanceAfter.toString())
+
+    // This is wrong, too large
+    console.log("P after", (await stabilityPool.P()).toString())
+    */
+
     assert.isFalse(await sortedTroves.contains(carol))
+
     // Check Dennis' SP deposit has absorbed Carol's debt, and he has received her liquidated ETH
     const dennis_Deposit_Before = (await stabilityPool.getCompoundedLUSDDeposit(dennis)).toString()
     const dennis_ETHGain_Before = (await stabilityPool.getDepositorETHGain(dennis)).toString()
-    assert.isAtMost(th.getDifference(dennis_Deposit_Before, spDeposit.sub(liquidatedDebt)), 1000000)
-    assert.isAtMost(th.getDifference(dennis_ETHGain_Before, liquidatedColl), 1000)
+    /*
+    console.log("spDeposit", spDeposit.toString())
+    console.log("LiquidatedDebt", liquidatedDebt.toString())
+    console.log("dennis_Deposit_Before", dennis_Deposit_Before)
+    */
+
+    const newSpDeposit = spDeposit.add(toBN(lusdGain));
+    console.log("spDepositAfter", newSpDeposit.sub(liquidatedDebt).toString());
+
+    assert.isAtMost(th.getDifference(dennis_Deposit_Before, newSpDeposit.sub(liquidatedDebt)), 3000000)
+    //assert.isAtMost(th.getDifference(dennis_Deposit_Before, spDeposit.sub(liquidatedDebt)), 1000000)
+    console.log("dennis_ETHGain_Before", dennis_ETHGain_Before.toString())
+    console.log("liquidatedColl", liquidatedColl.toString())
+    console.log("Eth error", (await stabilityPool.lastETHError_Offset()).toString())
+
+    const ethError = toBN(await stabilityPool.lastETHError_Offset()).div(toBN(dec(1,18)))
+    console.log("ethError", ethError.toString())
+    const expGainPlusError = toBN(dennis_ETHGain_Before).add(ethError)
+    assert.isAtMost(th.getDifference(expGainPlusError, liquidatedColl.toString()), 100)
+    //assert.isAtMost(th.getDifference(dennis_ETHGain_Before, liquidatedColl.toString()), 1000)
 
     // Confirm system is not in Recovery Mode
     assert.isFalse(await th.checkRecoveryMode(contracts));

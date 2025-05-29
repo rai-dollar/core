@@ -172,7 +172,7 @@ contract Relayer is Ownable, CheckContract {
     }
 
     function _updatePar(uint256 marketPrice) internal returns (uint256) {
-        int256 error = _controlError(marketPrice);
+        int256 error = _parControlError(marketPrice);
         int256 rampedError =  _rampErrorDec(error, PAR_EPSILON_1, PAR_EPSILON_2);
 
         (int256 newPar, int256 pOutput, int256 iOutput) = parControl.update(rampedError);
@@ -192,7 +192,7 @@ contract Relayer is Ownable, CheckContract {
     }
 
     function _updateRate(uint256 market) internal returns (uint256) {
-        int256 error = _controlError(market);
+        int256 error = _rateControlError(market);
         int256 rampedError =  _rampErrorRay(error, RATE_EPSILON_1, RATE_EPSILON_2);
 
         (int256 newRate, int256 pOutput, int256 iOutput) = rateControl.update(rampedError);
