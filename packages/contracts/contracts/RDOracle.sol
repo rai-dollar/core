@@ -89,7 +89,7 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     uint32 public override quotePeriodFast;
 
     /// @inheritdoc IRDOracle
-    string public override symbol = "RD / USD";
+    string public symbol = "RD / USD";
 
     /// @inheritdoc IRDOracle
     uint32 public override minObservationDelta;
@@ -112,7 +112,10 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         address[] memory _stablecoins,
         uint32 _minObservationDelta
     ) VaultGuard(IVault(_vault)) {
-        require(_quotePeriodFast < _quotePeriodSlow, "RDOracle/period-mismatch fast period should be lt slow period");
+        if (_quotePeriodFast >= _quotePeriodSlow) {
+            revert Oracle_PeriodMismatch();
+        }
+
         vault = _vault;
         rdToken = _rdToken;
         _stablecoinBasket = _stablecoins;
@@ -127,7 +130,7 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     function onRegister(
         address _factory,
         address _pool,
-        TokenConfig[] memory,
+        TokenConfig[] memory _tokenConfigs,
         LiquidityManagement calldata
     ) public override onlyVault returns (bool) {
         if (pool != address(0)) {
@@ -139,6 +142,39 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         if (!BasePoolFactory(_factory).isPoolFromFactory(_pool)) {
             revert Oracle_PoolNotFromFactory(_pool);
         }
+
+        // Initialize rdTokenIndex and _stablecoinBasketIndices
+        bool _rdTokenFound = false;
+        _stablecoinBasketIndices = new uint8[](_stablecoinBasket.length);
+
+        for (uint256 j = 0; j < _stablecoinBasket.length; ++j) {
+            address stablecoinToFind = _stablecoinBasket[j];
+            bool foundThisStablecoinInPool = false;
+            for (uint256 i = 0; i < _tokenConfigs.length; ++i) {
+                if (address(_tokenConfigs[i].token) == stablecoinToFind) {
+                    _stablecoinBasketIndices[j] = uint8(i);
+                    foundThisStablecoinInPool = true;
+                    break;
+                }
+            }
+            if (!foundThisStablecoinInPool) {
+                revert Oracle_StablecoinNotFound();
+            }
+        }
+
+        // Find the pool index for rdToken
+        for (uint256 i = 0; i < _tokenConfigs.length; ++i) {
+            if (address(_tokenConfigs[i].token) == rdToken) {
+                rdTokenIndex = uint8(i);
+                _rdTokenFound = true;
+                break;
+            }
+        }
+
+        if (!_rdTokenFound) {
+            revert Oracle_RDTokenNotFound();
+        }
+
         return true;
     }
 
@@ -174,7 +210,11 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     // --- Methods ---
 
     /// @inheritdoc IRDOracle
-    function getFastResultWithValidity() public view returns (uint256 _fastResult, bool _fastValidity) {
+    function getFastResultWithValidity()
+        public
+        view
+        returns (uint256 _fastResult, bool _fastValidity)
+    {
         // If the pool doesn't have enough history return false
 
         uint32[] memory secondsAgos = new uint32[](2);
@@ -221,13 +261,15 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         return _slowResult;
     }
 
-    function getFastSlowResultWithValidity() external view returns (uint256 _fastResult, bool _fastValidity,
-                                                                    uint256 _slowResult, bool _slowValidity) {
+    function getFastSlowResultWithValidity()
+        external
+        view
+        returns (uint256 _fastResult, bool _fastValidity, uint256 _slowResult, bool _slowValidity)
+    {
         // If the pool doesn't have enough history return false
 
-        (_fastResult, _fastValidity) = getFastResultWithValidity(); 
-        (_slowResult, _slowValidity) = getSlowResultWithValidity(); 
-
+        (_fastResult, _fastValidity) = getFastResultWithValidity();
+        (_slowResult, _slowValidity) = getSlowResultWithValidity();
     }
 
     /// @inheritdoc IRDOracle

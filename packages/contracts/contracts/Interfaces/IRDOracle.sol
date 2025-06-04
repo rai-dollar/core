@@ -39,6 +39,21 @@ interface IRDOracle {
      */
     error Oracle_AlreadyInitialized();
 
+    /**
+     * @notice Error thrown when slow period is not less than fast period
+     */
+    error Oracle_PeriodMismatch();
+
+    /**
+     * @notice Error thrown when the stablecoin is not found in the pool
+     */
+    error Oracle_StablecoinNotFound();
+
+    /**
+     * @notice Error thrown when the RD token is not found in the pool
+     */
+    error Oracle_RDTokenNotFound();
+
     // --- Structs ---
 
     /**
