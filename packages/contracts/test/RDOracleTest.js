@@ -191,7 +191,7 @@ contract("RDOracle", async accounts => {
   });
 
   describe("RDOracle Initialization", () => {
-    xit("should initialize with correct parameters", async () => {
+    it("should initialize with correct parameters", async () => {
       // Check vault address
       expect(await rdOracle.vault()).to.equal(vault.address);
       // Check RD token address
@@ -211,8 +211,7 @@ contract("RDOracle", async accounts => {
       expect(basket[2]).to.equal(DAI.address);
     });
 
-    xit("should revert if fast period >= slow period", async () => {
-      // Try to deploy with fast period equal to slow period
+    it("should revert if fast period >= slow period", async () => {
       await assertRevert(
         RDOracle.new(
           vault.address,
@@ -222,7 +221,7 @@ contract("RDOracle", async accounts => {
           stablecoins,
           MIN_OBSERVATION_DELTA
         ),
-        "RDOracle/period-mismatch fast period should be lt slow period"
+        "Oracle_PeriodMismatch()"
       );
 
       // Try to deploy with fast period greater than slow period
@@ -235,18 +234,18 @@ contract("RDOracle", async accounts => {
           stablecoins,
           MIN_OBSERVATION_DELTA
         ),
-        "RDOracle/period-mismatch fast period should be lt slow period"
+        "Oracle_PeriodMismatch()"
       );
     });
 
-    xit("should initialize oracle state with price of 1 RD/USD", async () => {
+    it("should initialize oracle state with price of 1 RD/USD", async () => {
       // Get the initial sqrtPriceX96 value (2^96 for price of 1)
       const expectedSqrtPriceX96 = new BN("2").pow(new BN("96"));
       const oracleState = await rdOracle.oracleState();
       expect(oracleState.sqrtPriceX96).to.be.bignumber.equal(expectedSqrtPriceX96);
     });
 
-    xit("should initialize oracle with proper symbol", async () => {
+    it("should initialize oracle with proper symbol", async () => {
       expect(await rdOracle.symbol()).to.equal("RD / USD");
     });
 
@@ -257,6 +256,63 @@ contract("RDOracle", async accounts => {
       expect(indices[0]).to.be.bignumber.equal(new BN(2));
       expect(indices[1]).to.be.bignumber.equal(new BN(3));
       expect(indices[2]).to.be.bignumber.equal(new BN(1));
+    });
+
+    it("should revert if vault address is zero", async () => {
+      await assertRevert(
+        RDOracle.new(
+          ZERO_ADDRESS,
+          RD.address,
+          QUOTE_PERIOD_FAST,
+          QUOTE_PERIOD_SLOW,
+          stablecoins,
+          MIN_OBSERVATION_DELTA
+        ),
+        "Oracle_VaultNotSet()"
+      );
+    });
+
+    it("should revert if RD token address is zero", async () => {
+      await assertRevert(
+        RDOracle.new(
+          vault.address,
+          ZERO_ADDRESS,
+          QUOTE_PERIOD_FAST,
+          QUOTE_PERIOD_SLOW,
+          stablecoins,
+          MIN_OBSERVATION_DELTA
+        ),
+        "Oracle_RDTokenNotSet()"
+      );
+    });
+
+    it("should revert if stablecoins array is empty", async () => {
+      await assertRevert(
+        RDOracle.new(
+          vault.address,
+          RD.address,
+          QUOTE_PERIOD_FAST,
+          QUOTE_PERIOD_SLOW,
+          [], // Empty stablecoins array
+          MIN_OBSERVATION_DELTA
+        ),
+        "Oracle_StablecoinBasketEmpty()"
+      );
+    });
+
+    it("should revert if stablecoins array contains a zero address", async () => {
+      const stablecoinsWithZero = [USDC.address, ZERO_ADDRESS, DAI.address];
+      await assertRevert(
+        RDOracle.new(
+          vault.address,
+          RD.address,
+          QUOTE_PERIOD_FAST,
+          QUOTE_PERIOD_SLOW,
+          stablecoinsWithZero,
+          MIN_OBSERVATION_DELTA
+        ),
+        "Oracle_StablecoinBasketZeroAddress()"
+      );
     });
   });
 });

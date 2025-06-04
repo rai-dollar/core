@@ -45,6 +45,26 @@ interface IRDOracle {
     error Oracle_PeriodMismatch();
 
     /**
+     * @notice Error thrown when the vault is not set
+     */
+    error Oracle_VaultNotSet();
+
+    /**
+     * @notice Error thrown when the RD token is not set
+     */
+    error Oracle_RDTokenNotSet();
+
+    /**
+     * @notice Error thrown when the stablecoin basket is empty
+     */
+    error Oracle_StablecoinBasketEmpty();
+
+    /**
+     * @notice Error thrown when the stablecoin basket contains a zero address
+     */
+    error Oracle_StablecoinBasketZeroAddress();
+
+    /**
      * @notice Error thrown when the stablecoin is not found in the pool
      */
     error Oracle_StablecoinNotFound();

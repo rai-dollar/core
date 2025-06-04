@@ -115,7 +115,20 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         if (_quotePeriodFast >= _quotePeriodSlow) {
             revert Oracle_PeriodMismatch();
         }
-
+        if (_vault == address(0)) {
+            revert Oracle_VaultNotSet();
+        }
+        if (_rdToken == address(0)) {
+            revert Oracle_RDTokenNotSet();
+        }
+        if (_stablecoins.length == 0) {
+            revert Oracle_StablecoinBasketEmpty();
+        }
+        for (uint256 i = 0; i < _stablecoins.length; i++) {
+            if (_stablecoins[i] == address(0)) {
+                revert Oracle_StablecoinBasketZeroAddress();
+            }
+        }
         vault = _vault;
         rdToken = _rdToken;
         _stablecoinBasket = _stablecoins;
