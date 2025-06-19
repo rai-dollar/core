@@ -248,6 +248,19 @@
       {
         "indexed": false,
         "internalType": "address",
+        "name": "_relayerAddress",
+        "type": "address"
+      }
+    ],
+    "name": "RelayerAddressChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
         "name": "_sortedTrovesAddress",
         "type": "address"
       }
@@ -1500,6 +1513,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "relayer",
+    "outputs": [
+      {
+        "internalType": "contract IRelayer",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
@@ -1591,6 +1617,11 @@
       {
         "internalType": "address",
         "name": "_lqtyStakingAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_relayerAddress",
         "type": "address"
       }
     ],

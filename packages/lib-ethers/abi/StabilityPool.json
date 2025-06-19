@@ -112,19 +112,6 @@
     "inputs": [
       {
         "indexed": false,
-        "internalType": "uint128",
-        "name": "_currentEpoch",
-        "type": "uint128"
-      }
-    ],
-    "name": "EpochUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
         "internalType": "address",
         "name": "_to",
         "type": "address"
@@ -238,15 +225,9 @@
       },
       {
         "indexed": false,
-        "internalType": "uint128",
-        "name": "_epoch",
-        "type": "uint128"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint128",
+        "internalType": "uint256",
         "name": "_scale",
-        "type": "uint128"
+        "type": "uint256"
       }
     ],
     "name": "G_Updated",
@@ -359,15 +340,9 @@
       },
       {
         "indexed": false,
-        "internalType": "uint128",
-        "name": "_epoch",
-        "type": "uint128"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint128",
+        "internalType": "uint256",
         "name": "_scale",
-        "type": "uint128"
+        "type": "uint256"
       }
     ],
     "name": "S_Updated",
@@ -378,9 +353,9 @@
     "inputs": [
       {
         "indexed": false,
-        "internalType": "uint128",
+        "internalType": "uint256",
         "name": "_currentScale",
-        "type": "uint128"
+        "type": "uint256"
       }
     ],
     "name": "ScaleUpdated",
@@ -641,25 +616,12 @@
   },
   {
     "inputs": [],
-    "name": "currentEpoch",
-    "outputs": [
-      {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "currentScale",
     "outputs": [
       {
-        "internalType": "uint128",
+        "internalType": "uint256",
         "name": "",
-        "type": "uint128"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -704,14 +666,9 @@
         "type": "uint256"
       },
       {
-        "internalType": "uint128",
+        "internalType": "uint256",
         "name": "scale",
-        "type": "uint128"
-      },
-      {
-        "internalType": "uint128",
-        "name": "epoch",
-        "type": "uint128"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -744,54 +701,6 @@
   {
     "inputs": [
       {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      },
-      {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      }
-    ],
-    "name": "epochToScaleToG",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      },
-      {
-        "internalType": "uint128",
-        "name": "",
-        "type": "uint128"
-      }
-    ],
-    "name": "epochToScaleToSum",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "",
         "type": "address"
@@ -815,14 +724,9 @@
         "type": "uint256"
       },
       {
-        "internalType": "uint128",
+        "internalType": "uint256",
         "name": "scale",
-        "type": "uint128"
-      },
-      {
-        "internalType": "uint128",
-        "name": "epoch",
-        "type": "uint128"
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -1007,6 +911,19 @@
   },
   {
     "inputs": [],
+    "name": "getMaxAmountToOffset",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "getTotalLUSDDeposits",
     "outputs": [
       {
@@ -1156,6 +1073,44 @@
     "name": "registerFrontEnd",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "scaleToG",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "scaleToSum",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
