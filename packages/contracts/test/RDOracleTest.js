@@ -45,110 +45,15 @@ const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 
 const anvilAccount1 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
-// Utils
-
-function createTruffleTokenConfig(
-  tokenAddress,
-  tokenType = TokenType.STANDARD,
-  rateProvider = ethers.constants.AddressZero,
-  paysYieldFees = false
-) {
-  return [tokenAddress, tokenType, rateProvider, paysYieldFees];
-}
-
-async function executeSwap({
-  signer,
-  newPoolAddress,
-  _amountIn,
-  _minAmountOut,
-  tokenIn,
-  tokenOut,
-  tokenInDecimals,
-  tokenOutDecimals
-}) {
-  const swapperAccount = anvilAccount1;
-  const amountIn = ethers.utils.parseUnits(_amountIn, tokenInDecimals); // Swap 10 RD
-  const tokenInBalance = await tokenIn.balanceOf(anvilAccount1);
-
-  if (tokenInBalance.lt(amountIn)) {
-    console.warn(
-      `Swapper account ${anvilAccount1} has ${ethers.utils.formatUnits(
-        tokenInBalance,
-        tokenInDecimals
-      )} ${tokenIn.symbol}, needs ${_amountIn} ${
-        tokenIn.symbol
-      } for swap. Test may fail or be misleading if account is not funded externally.`
-    );
-  }
-
-  const minAmountOut = ethers.utils.parseUnits(_minAmountOut, tokenOutDecimals); // Expect at least 1 USDC out
-
-  const latestTimestamp = (await time.latest()).toNumber();
-  const deadline = latestTimestamp + 3600; // 1 hour
-
-  const permit2Contract = new ethers.Contract(
-    PERMIT2_ADDRESS,
-    ["function approve(address token, address spender, uint160 amount, uint48 expiration) external"],
-    signer
-  );
-
-  const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
-
-  await permit2Contract.approve(tokenIn.address, router.address, amountIn.toString(), expiration);
-
-  try {
-    swapTx = await router.swapSingleTokenExactIn(
-      newPoolAddress, // pool address
-      tokenIn.address, // tokenIn
-      tokenOut.address, // tokenOut
-      amountIn, // exactAmountIn
-      minAmountOut, // minAmountOut
-      deadline, // deadline
-      false, // wethIsEth
-      "0x", // userData
-      { from: swapperAccount }
-    );
-    return swapTx;
-  } catch (e) {
-    const tokenInAllowanceToPermit2 = await tokenIn.allowance(swapperAccount, PERMIT2_ADDRESS);
-    console.error(
-      `Router swap transaction failed for swapper ${swapperAccount}.\n` +
-        `${tokenIn.symbol} Balance: ${ethers.utils.formatUnits(tokenInBalance, tokenInDecimals)} ${
-          tokenIn.symbol
-        } (need ${ethers.utils.formatUnits(amountIn, tokenInDecimals)} ${tokenIn.symbol}).\n` +
-        `${tokenIn.symbol} Allowance to Permit2: ${ethers.utils.formatUnits(
-          tokenInAllowanceToPermit2,
-          tokenInDecimals
-        )} ${tokenIn.symbol}.\n` +
-        `Error: ${e.message}`,
-      e.stack
-    );
-    throw e;
-  }
-}
-
-async function increaseObservationCardinality(rdOracle, cardinalityNext) {
-  try {
-    await rdOracle.increaseObservationCardinalityNext(cardinalityNext);
-  } catch (e) {
-    console.error("Error increasing oracle cardinality:", e);
-  }
-}
-
-async function logOracleState(oracleState) {
-  console.log("Oracle State:", {
-    sqrtPriceX96: oracleState.sqrtPriceX96.toString(),
-    tick: oracleState.tick.toString(),
-    observationIndex: oracleState.observationIndex.toString(),
-    observationCardinality: oracleState.observationCardinality.toString(),
-    observationCardinalityNext: oracleState.observationCardinalityNext.toString()
-  });
-}
+const swapperAccount = anvilAccount1; // The account that will perform swaps and provide initial liquidity
 
 contract("RDOracle", async accounts => {
-  let RD, USDC, USDT, DAI, stablecoins;
+  let RD, USDC, USDT, DAI;
   let vault, rdOracle, stablePoolFactory;
-  let newPoolAddress, poolId, stablePool;
+  let newPoolAddress, poolId;
+
+  const provider = new ethers.providers.JsonRpcProvider();
+  const ethersSigner = provider.getSigner(anvilAccount1);
 
   const QUOTE_PERIOD_FAST = 300; // 5 minutes
   const QUOTE_PERIOD_SLOW = 3600; // 1 hour
@@ -164,22 +69,223 @@ contract("RDOracle", async accounts => {
   const balv3Vault = "0xbA1333333333a1BA1108E8412f11850A5C319bA9";
   const balv3Router = "0xAE563E3f8219521950555F5962419C8919758Ea2";
 
-  const logPool = false;
-  const logTokenAcquisition = false;
+  const stablecoins = [USDCAddress, USDTAddress, DAIAddress];
 
-  beforeEach(async () => {
+  const logsOn = false;
+
+  async function setupContracts(logSetup = false) {
+    const showLogs = logsOn && logSetup;
     USDC = await ERC20.at(USDCAddress);
     USDT = await ERC20.at(USDTAddress);
     DAI = await ERC20.at(DAIAddress);
     RD = await ERC20.at(RDTAddress);
 
-    stablecoins = [USDC.address, USDT.address, DAI.address];
-
     vault = await Vault.at(balv3Vault);
-
     router = await Router.at(balv3Router);
 
-    if (logPool) {
+    stablePoolFactory = await StablePoolFactory.at(balv3StablePoolFactory);
+
+    if (showLogs) {
+      console.log("Setup Contracts");
+      console.log("RD:", RD.address);
+      console.log("USDC:", USDC.address);
+      console.log("USDT:", USDT.address);
+      console.log("DAI:", DAI.address);
+      console.log("Vault:", vault.address);
+      console.log("Router:", router.address);
+      console.log("StablePoolFactory:", stablePoolFactory.address);
+    }
+  }
+
+  async function logOracleState(oracleState) {
+    console.log("Oracle State:", {
+      sqrtPriceX96: oracleState.sqrtPriceX96.toString(),
+      tick: oracleState.tick.toString(),
+      observationIndex: oracleState.observationIndex.toString(),
+      observationCardinality: oracleState.observationCardinality.toString(),
+      observationCardinalityNext: oracleState.observationCardinalityNext.toString()
+    });
+  }
+
+  function createTruffleTokenConfig(
+    tokenAddress,
+    tokenType = TokenType.STANDARD,
+    rateProvider = ethers.constants.AddressZero,
+    paysYieldFees = false
+  ) {
+    return [tokenAddress, tokenType, rateProvider, paysYieldFees];
+  }
+
+  async function setupTokenAcquisition(logSetup = false) {
+    const showLogs = logsOn && logSetup;
+    if (showLogs) {
+      console.log("Starting token acquisition for swapperAccount:", swapperAccount);
+    }
+
+    const tokensToAcquire = [
+      {
+        token: RD,
+        whale: RDT_WHALE,
+        amount: ethers.utils.parseUnits("10000", RD_DECIMALS),
+        name: "RD"
+      },
+      {
+        token: DAI,
+        whale: DAI_WHALE,
+        amount: ethers.utils.parseUnits("10000", DAI_DECIMALS),
+        name: "DAI"
+      },
+      {
+        token: USDC,
+        whale: USDC_WHALE,
+        amount: ethers.utils.parseUnits("10000", USDC_DECIMALS),
+        name: "USDC"
+      },
+      {
+        token: USDT,
+        whale: USDT_WHALE,
+        amount: ethers.utils.parseUnits("10000", USDT_DECIMALS),
+        name: "USDT"
+      }
+    ];
+
+    for (const { token, whale, amount, name } of tokensToAcquire) {
+      try {
+        const decimalsBN = await token.decimals();
+        const decimalsNumber = decimalsBN.toNumber();
+
+        if (showLogs) {
+          console.log(
+            `Attempting to acquire ${ethers.utils.formatUnits(
+              amount,
+              decimalsNumber
+            )} ${name} from whale ${whale}...`
+          );
+        }
+
+        // Ensure whale has ETH to pay for gas.
+        // This gives the impersonated whale 1 ETH on the fork.
+        await ethers.provider.send("hardhat_setBalance", [whale, "0xDE0B6B3A7640000"]);
+
+        await ethers.provider.send("hardhat_impersonateAccount", [whale]);
+        const whaleSigner = await ethers.getSigner(whale);
+        const tokenFromWhale = new ethers.Contract(token.address, token.abi, whaleSigner);
+
+        if (showLogs) {
+          console.log(`Whale ${whale} impersonated for ${name}. Attempting transfer...`);
+        }
+        await tokenFromWhale.transfer(swapperAccount, amount);
+        if (showLogs) {
+          console.log(`Transfer call for ${name} completed.`);
+        }
+
+        await ethers.provider.send("hardhat_stopImpersonatingAccount", [whale]);
+
+        const swapperBalance = await token.balanceOf(swapperAccount);
+        if (showLogs) {
+          console.log(
+            `Acquired ${name}. Swapper ${name} balance: ${ethers.utils.formatUnits(
+              swapperBalance.toString(),
+              decimalsNumber
+            )}`
+          );
+        }
+      } catch (e) {
+        console.error(`Failed to acquire ${name} from whale ${whale}. Error: ${e.message}`, e.stack);
+        console.warn(
+          `Skipping ${name} acquisition due to error. Liquidity/swap tests for this token might be affected.`
+        );
+      }
+      if (showLogs) {
+        console.log("Token acquisition phase complete.");
+      }
+    }
+  }
+
+  async function executeSwap({
+    signer,
+    newPoolAddress,
+    _amountIn,
+    _minAmountOut,
+    tokenIn,
+    tokenOut,
+    tokenInDecimals,
+    tokenOutDecimals
+  }) {
+    const swapperAccount = anvilAccount1;
+    const amountIn = ethers.utils.parseUnits(_amountIn, tokenInDecimals); // Swap 10 RD
+    const tokenInBalance = await tokenIn.balanceOf(anvilAccount1);
+
+    if (tokenInBalance.lt(amountIn)) {
+      console.warn(
+        `Swapper account ${anvilAccount1} has ${ethers.utils.formatUnits(
+          tokenInBalance,
+          tokenInDecimals
+        )} ${tokenIn.symbol}, needs ${_amountIn} ${
+          tokenIn.symbol
+        } for swap. Test may fail or be misleading if account is not funded externally.`
+      );
+    }
+
+    const minAmountOut = ethers.utils.parseUnits(_minAmountOut, tokenOutDecimals); // Expect at least 1 USDC out
+
+    const latestTimestamp = (await time.latest()).toNumber();
+    const deadline = latestTimestamp + 3600; // 1 hour
+
+    const permit2Contract = new ethers.Contract(
+      PERMIT2_ADDRESS,
+      [
+        "function approve(address token, address spender, uint160 amount, uint48 expiration) external"
+      ],
+      signer
+    );
+
+    const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
+
+    await permit2Contract.approve(tokenIn.address, router.address, amountIn.toString(), expiration);
+
+    try {
+      swapTx = await router.swapSingleTokenExactIn(
+        newPoolAddress, // pool address
+        tokenIn.address, // tokenIn
+        tokenOut.address, // tokenOut
+        amountIn, // exactAmountIn
+        minAmountOut, // minAmountOut
+        deadline, // deadline
+        false, // wethIsEth
+        "0x", // userData
+        { from: swapperAccount }
+      );
+      return swapTx;
+    } catch (e) {
+      const tokenInAllowanceToPermit2 = await tokenIn.allowance(swapperAccount, PERMIT2_ADDRESS);
+      console.error(
+        `Router swap transaction failed for swapper ${swapperAccount}.\n` +
+          `${tokenIn.symbol} Balance: ${ethers.utils.formatUnits(tokenInBalance, tokenInDecimals)} ${
+            tokenIn.symbol
+          } (need ${ethers.utils.formatUnits(amountIn, tokenInDecimals)} ${tokenIn.symbol}).\n` +
+          `${tokenIn.symbol} Allowance to Permit2: ${ethers.utils.formatUnits(
+            tokenInAllowanceToPermit2,
+            tokenInDecimals
+          )} ${tokenIn.symbol}.\n` +
+          `Error: ${e.message}`,
+        e.stack
+      );
+      throw e;
+    }
+  }
+
+  async function increaseObservationCardinality(rdOracle, cardinalityNext) {
+    try {
+      await rdOracle.increaseObservationCardinalityNext(cardinalityNext);
+    } catch (e) {
+      console.error("Error increasing oracle cardinality:", e);
+    }
+  }
+
+  async function createPool(logSetup = false) {
+    const showLogs = logsOn && logSetup;
+    if (showLogs) {
       console.log("constructor args");
       console.log("vault", vault.address);
       console.log("RD", RD.address);
@@ -188,17 +294,6 @@ contract("RDOracle", async accounts => {
       console.log("stablecoins", stablecoins);
       console.log("MIN_OBSERVATION_DELTA", MIN_OBSERVATION_DELTA);
     }
-
-    rdOracle = await RDOracle.new(
-      vault.address,
-      RD.address,
-      QUOTE_PERIOD_FAST,
-      QUOTE_PERIOD_SLOW,
-      stablecoins,
-      MIN_OBSERVATION_DELTA
-    );
-
-    stablePoolFactory = await StablePoolFactory.at(balv3StablePoolFactory);
 
     const poolName = "RD-USDC-USDT-DAI";
     const poolSymbol = "RD-USDC-USDT-DAI";
@@ -225,7 +320,7 @@ contract("RDOracle", async accounts => {
     const randomBytes = ethers.utils.randomBytes(32);
     const salt = ethers.utils.hexlify(randomBytes);
 
-    if (logPool) {
+    if (showLogs) {
       console.log(`Attempting to create pool with factory: ${stablePoolFactory.address}`);
       console.log(`Parameters for create:`);
       console.log(`  Name: ${poolName}`);
@@ -253,7 +348,7 @@ contract("RDOracle", async accounts => {
         salt
       );
 
-      if (logPool) {
+      if (showLogs) {
         console.log("Pool creation transaction sent successfully!");
         console.log("Transaction Hash:", txResponse.tx);
       }
@@ -270,7 +365,7 @@ contract("RDOracle", async accounts => {
             poolId = ethers.utils.hexZeroPad(newPoolAddress, 32);
 
             stablePool = await StablePool.at(newPoolAddress);
-            if (logPool) {
+            if (showLogs) {
               console.log("New Pool Address via PoolCreated event:", newPoolAddress);
               console.log("Derived Pool ID:", poolId);
             }
@@ -280,7 +375,7 @@ contract("RDOracle", async accounts => {
       }
 
       if (!newPoolAddress) {
-        if (logPool) {
+        if (showLogs) {
           console.log(
             "PoolCreated event not found or pool address missing in logs. Check contract events."
           );
@@ -292,6 +387,126 @@ contract("RDOracle", async accounts => {
       console.error("Error in beforeEach during pool creation:", error);
       throw error; // Re-throw to fail the test setup if pool creation fails
     }
+  }
+
+  async function initializePool(logSetup = false) {
+    const showLogs = logsOn && logSetup;
+    const exactAmountsIn = [
+      ethers.utils.parseUnits("32", RD_DECIMALS), // 10 RD
+      ethers.utils.parseUnits("32", DAI_DECIMALS), // 10 DAI
+      ethers.utils.parseUnits("32", USDC_DECIMALS), // 10 USDC
+      ethers.utils.parseUnits("32", USDT_DECIMALS) // 10 USDT
+    ];
+
+    try {
+      // Create Permit2 contract instance
+      if (showLogs) {
+        console.log("Setting ERC20 approvals to Permit2 first...");
+      }
+
+      // First, approve Permit2 to spend each token
+      const maxApproval = ethers.constants.MaxUint256;
+      await RD.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
+      await DAI.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
+      await USDC.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
+      await USDT.approve(PERMIT2_ADDRESS, 0, { from: swapperAccount });
+      await USDT.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
+
+      if (showLogs) {
+        console.log("ERC20 approvals to Permit2 complete. Now setting Permit2 allowances...");
+      }
+
+      const permit2Contract = new ethers.Contract(
+        PERMIT2_ADDRESS,
+        [
+          "function approve(address token, address spender, uint160 amount, uint48 expiration) external"
+        ],
+        ethersSigner
+      );
+
+      if (showLogs) {
+        console.log("Setting individual Permit2 allowances...");
+      }
+
+      // Set individual permits
+      const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
+
+      await permit2Contract.approve(
+        RD.address,
+        router.address,
+        exactAmountsIn[0].toString(),
+        expiration
+      );
+
+      await permit2Contract.approve(
+        DAI.address,
+        router.address,
+        exactAmountsIn[1].toString(),
+        expiration
+      );
+
+      await permit2Contract.approve(
+        USDC.address,
+        router.address,
+        exactAmountsIn[2].toString(),
+        expiration
+      );
+
+      await permit2Contract.approve(USDT.address, router.address, "0", expiration);
+
+      await permit2Contract.approve(
+        USDT.address,
+        router.address,
+        exactAmountsIn[3].toString(),
+        expiration
+      );
+
+      if (showLogs) {
+        console.log("Permit2 allowances set, now trying initialize...");
+      }
+
+      const initializePoolTx = await router.initialize(
+        newPoolAddress,
+        [RD.address, DAI.address, USDC.address, USDT.address],
+        exactAmountsIn.map(amount => amount.toString()),
+        "0",
+        false,
+        "0x",
+        { from: swapperAccount }
+      );
+
+      if (showLogs) {
+        console.log("Pool initialized successfully with individual permits!");
+        console.log("Transaction hash:", initializePoolTx.tx);
+      }
+    } catch (e) {
+      console.error("Error during pool initialization:", e);
+    }
+  }
+
+  async function createOracle(logSetup = false) {
+    const showLogs = logsOn && logSetup;
+    try {
+      rdOracle = await RDOracle.new(
+        vault.address,
+        RDTAddress,
+        QUOTE_PERIOD_FAST,
+        QUOTE_PERIOD_SLOW,
+        stablecoins,
+        MIN_OBSERVATION_DELTA
+      );
+      if (showLogs) {
+        console.log("Oracle created successfully:", rdOracle.address);
+      }
+    } catch (e) {
+      console.error("Error during oracle creation:", e);
+    }
+  }
+
+  beforeEach(async () => {
+    await setupContracts(true);
+    await createOracle(true);
+    await createPool(true);
   });
 
   describe("RDOracle Initialization", () => {
@@ -431,199 +646,9 @@ contract("RDOracle", async accounts => {
   });
 
   describe("Balancer Pool Hook Functionality (afterSwap)", async () => {
-    const provider = new ethers.providers.JsonRpcProvider();
-    const ethersSigner = provider.getSigner(anvilAccount1);
     beforeEach(async () => {
-      // --- Token Acquisition via Impersonation ---
-      const USDC = await ERC20.at(USDCAddress);
-      const USDT = await ERC20.at(USDTAddress);
-      const DAI = await ERC20.at(DAIAddress);
-      const RD = await ERC20.at(RDTAddress);
-
-      const swapperAccount = anvilAccount1; // The account that will perform swaps and provide initial liquidity
-
-      if (logTokenAcquisition) {
-        console.log("Starting token acquisition for swapperAccount:", swapperAccount);
-      }
-
-      const tokensToAcquire = [
-        {
-          token: RD,
-          whale: RDT_WHALE,
-          amount: ethers.utils.parseUnits("10000", RD_DECIMALS),
-          name: "RD"
-        },
-        {
-          token: DAI,
-          whale: DAI_WHALE,
-          amount: ethers.utils.parseUnits("10000", DAI_DECIMALS),
-          name: "DAI"
-        },
-        {
-          token: USDC,
-          whale: USDC_WHALE,
-          amount: ethers.utils.parseUnits("10000", USDC_DECIMALS),
-          name: "USDC"
-        },
-        {
-          token: USDT,
-          whale: USDT_WHALE,
-          amount: ethers.utils.parseUnits("10000", USDT_DECIMALS),
-          name: "USDT"
-        }
-      ];
-
-      for (const { token, whale, amount, name } of tokensToAcquire) {
-        try {
-          const decimalsBN = await token.decimals();
-          const decimalsNumber = decimalsBN.toNumber();
-
-          if (logTokenAcquisition) {
-            console.log(
-              `Attempting to acquire ${ethers.utils.formatUnits(
-                amount,
-                decimalsNumber
-              )} ${name} from whale ${whale}...`
-            );
-          }
-
-          // Ensure whale has ETH to pay for gas.
-          // This gives the impersonated whale 1 ETH on the fork.
-          await ethers.provider.send("hardhat_setBalance", [whale, "0xDE0B6B3A7640000"]);
-
-          await ethers.provider.send("hardhat_impersonateAccount", [whale]);
-          const whaleSigner = await ethers.getSigner(whale);
-          const tokenFromWhale = new ethers.Contract(token.address, token.abi, whaleSigner);
-
-          if (logTokenAcquisition) {
-            console.log(`Whale ${whale} impersonated for ${name}. Attempting transfer...`);
-          }
-          await tokenFromWhale.transfer(swapperAccount, amount);
-          if (logTokenAcquisition) {
-            console.log(`Transfer call for ${name} completed.`);
-          }
-
-          await ethers.provider.send("hardhat_stopImpersonatingAccount", [whale]);
-
-          const swapperBalance = await token.balanceOf(swapperAccount);
-          if (logTokenAcquisition) {
-            console.log(
-              `Acquired ${name}. Swapper ${name} balance: ${ethers.utils.formatUnits(
-                swapperBalance.toString(),
-                decimalsNumber
-              )}`
-            );
-          }
-        } catch (e) {
-          console.error(
-            `Failed to acquire ${name} from whale ${whale}. Error: ${e.message}`,
-            e.stack
-          );
-          console.warn(
-            `Skipping ${name} acquisition due to error. Liquidity/swap tests for this token might be affected.`
-          );
-        }
-        if (logTokenAcquisition) {
-          console.log("Token acquisition phase complete.");
-        }
-      }
-      // --- Permit2 Approvals and Pool Initialization ---
-      // const provider = new ethers.providers.JsonRpcProvider(); // Uses default RPC
-      // const ethersSigner = provider.getSigner(swapperAccount);
-
-      const exactAmountsIn = [
-        ethers.utils.parseUnits("32", RD_DECIMALS), // 10 RD
-        ethers.utils.parseUnits("32", DAI_DECIMALS), // 10 DAI
-        ethers.utils.parseUnits("32", USDC_DECIMALS), // 10 USDC
-        ethers.utils.parseUnits("32", USDT_DECIMALS) // 10 USDT
-      ];
-
-      try {
-        // Create Permit2 contract instance
-        if (logTokenAcquisition) {
-          console.log("Setting ERC20 approvals to Permit2 first...");
-        }
-
-        // First, approve Permit2 to spend each token
-        const maxApproval = ethers.constants.MaxUint256;
-        await RD.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
-        await DAI.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
-        await USDC.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
-        await USDT.approve(PERMIT2_ADDRESS, 0, { from: swapperAccount });
-        await USDT.approve(PERMIT2_ADDRESS, maxApproval, { from: swapperAccount });
-
-        if (logTokenAcquisition) {
-          console.log("ERC20 approvals to Permit2 complete. Now setting Permit2 allowances...");
-        }
-
-        const permit2Contract = new ethers.Contract(
-          PERMIT2_ADDRESS,
-          [
-            "function approve(address token, address spender, uint160 amount, uint48 expiration) external"
-          ],
-          ethersSigner
-        );
-
-        if (logTokenAcquisition) {
-          console.log("Setting individual Permit2 allowances...");
-        }
-
-        // Set individual permits
-        const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
-
-        await permit2Contract.approve(
-          RD.address,
-          router.address,
-          exactAmountsIn[0].toString(),
-          expiration
-        );
-
-        await permit2Contract.approve(
-          DAI.address,
-          router.address,
-          exactAmountsIn[1].toString(),
-          expiration
-        );
-
-        await permit2Contract.approve(
-          USDC.address,
-          router.address,
-          exactAmountsIn[2].toString(),
-          expiration
-        );
-
-        await permit2Contract.approve(USDT.address, router.address, "0", expiration);
-
-        await permit2Contract.approve(
-          USDT.address,
-          router.address,
-          exactAmountsIn[3].toString(),
-          expiration
-        );
-
-        if (logPool) {
-          console.log("Permit2 allowances set, now trying initialize...");
-        }
-
-        const initializePoolTx = await router.initialize(
-          newPoolAddress,
-          [RD.address, DAI.address, USDC.address, USDT.address],
-          exactAmountsIn.map(amount => amount.toString()),
-          "0",
-          false,
-          "0x",
-          { from: swapperAccount }
-        );
-
-        if (logPool) {
-          console.log("Pool initialized successfully with individual permits!");
-          console.log("Transaction hash:", initializePoolTx.tx);
-        }
-      } catch (e) {
-        console.error("Error during pool initialization:", e);
-      }
-
-      // Increase observation cardinality
+      await setupTokenAcquisition(true);
+      await initializePool(true);
       await increaseObservationCardinality(rdOracle, 10);
     });
 
@@ -715,4 +740,13 @@ contract("RDOracle", async accounts => {
       expect(oracleStateAfter.observationIndex.toNumber()).to.be.equal(1);
     });
   });
+
+  // describe("Price Reading Functions", () => {
+  //   const provider = new ethers.providers.JsonRpcProvider();
+  //   const ethersSigner = provider.getSigner(anvilAccount1);
+  //   it("should read fast price correctly", async () => {
+  //     const fastPrice = await rdOracle.readFast();
+  //     expect(fastPrice).to.be.bignumber.gt(new BN(0));
+  //   });
+  // });
 });
