@@ -2,29 +2,61 @@
 
 pragma solidity 0.8.24;
 
-import "./Dependencies/AggregatorV3Interface.sol";
-import "./Dependencies/LiquityMath.sol";
-import "./Structs.sol";
+import "../Common/LiquityMath.sol";
+import {Constants as C} from "../Common/Constants.sol";
+import "../Interfaces/IApi3ReaderProxy.sol";
+import "../Interfaces/IPriceFeed.sol";
 
 /*
 * this library is used to parse the response from the Api3 oracle and convert it to the Response struct
 */
 
-interface IApi3ReaderProxy {
-    function read() external view returns (int224 value, uint32 timestamp);
-}
 
-library Api3Response {
+library Api3Parser {
+
     struct Api3Response {
         int224 value;
         uint32 timestamp;
     }
-    function getApi3Response(address api3ReaderProxy) internal view returns (Response memory) {
-        Api3Response memory response;
+
+    function getResponse(address _api3ReaderProxy) public view returns (IPriceFeed.Response memory response) {
+        Api3Response memory api3Response;
+        IApi3ReaderProxy api3ReaderProxy = IApi3ReaderProxy(_api3ReaderProxy);
+
+        uint256 gasBefore = gasleft();
+
         // api3 returns a 18 decimal value
-        (response.value, response.timestamp) = IApi3ReaderProxy(api3ReaderProxy).read();
-        return Response({price: response.value, lastUpdated: response.timestamp});
+        try api3ReaderProxy.read() returns (int224 value, uint32 timestamp) {
+            api3Response.value = value;
+            api3Response.timestamp = timestamp;
+
+            uint256 convertedPrice = uint256(int256(api3Response.value));
+            response.price = convertedPrice;
+            response.lastUpdated = api3Response.timestamp;
+
+            if (isGoodResponse(response)) {
+                response.success = true;
+                return response;
+            } else {
+                response.success = false;
+                return response;
+            }
+        } catch {
+            if (gasleft() <= gasBefore / 64) revert IPriceFeed.InsufficientGasForExternalCall();
+
+            return response;
+        }
     }
 
+    function isStale(uint256 lastUpdated) public view returns (bool) {
+        return block.timestamp - lastUpdated > C.API3_STALENESS_THRESHOLD;
+    }
 
+    function isGoodResponse(IPriceFeed.Response memory _response) public view returns (bool) {
+        return _response.success && _response.price > 0 && _response.lastUpdated > 0 && !isStale(_response.lastUpdated);
+    }
+
+    function deviationThreshold() public pure returns (uint256) {
+        return C.API3_MAX_PRICE_DEVIATION;
+    }
 }
