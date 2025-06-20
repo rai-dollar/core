@@ -6,6 +6,37 @@ pragma solidity ^0.8.24;
  */
 interface IRDOracle {
     // --- Events ---
+
+    /**
+     * @notice Emitted when the oracle hook is called
+     * @param _pool The pool address
+     * @param _shouldUpdate Whether the oracle should update
+     * @param _timeSinceLastUpdate Time since last update
+     * @param _minDelta Minimum observation delta
+     */
+    event OracleHookCalled(
+        address indexed _pool,
+        bool _shouldUpdate,
+        uint32 _timeSinceLastUpdate,
+        uint32 _minDelta
+    );
+
+    /**
+     * @notice Emitted when the oracle price is updated
+     * @param _oldTick The old tick
+     * @param _newTick The new tick
+     * @param _oldSqrtPriceX96 The old sqrt price
+     * @param _newSqrtPriceX96 The new sqrt price
+     * @param _observationIndex The observation index
+     */
+    event OraclePriceUpdated(
+        int24 _oldTick,
+        int24 _newTick,
+        uint160 _oldSqrtPriceX96,
+        uint160 _newSqrtPriceX96,
+        uint16 _observationIndex
+    );
+
     // --- Errors ---
 
     /**
@@ -15,9 +46,9 @@ interface IRDOracle {
 
     /**
      * @notice Error thrown when the pool was not created by the allowed factory.
-     * @param pool The address of the pool.
+     * @param _pool The address of the pool.
      */
-    error Oracle_PoolNotFromFactory(address pool);
+    error Oracle_PoolNotFromFactory(address _pool);
 
     /**
      * @notice Error thrown when trying to divide by zero
@@ -222,6 +253,19 @@ interface IRDOracle {
     function getSlowResultWithValidity() external view returns (uint256 _result, bool _validity);
 
     /**
+     * @notice Fetch the latest fast and slow oracle results and whether they are valid or not
+     * @dev    This method should never revert
+     * @return _fastResult The latest fast oracle result
+     * @return _fastValidity Whether the fast oracle result is valid
+     * @return _slowResult The latest slow oracle result
+     * @return _slowValidity Whether the slow oracle result is valid
+     */
+    function getFastSlowResultWithValidity()
+        external
+        view
+        returns (uint256 _fastResult, bool _fastValidity, uint256 _slowResult, bool _slowValidity);
+
+    /**
      * @notice Fetch the latest fast oracle result
      * @dev    Will revert if is the price feed is invalid
      * @return _value The latest fast oracle result
@@ -244,6 +288,13 @@ interface IRDOracle {
     function readFastSlow() external view returns (uint256 _fastValue, uint256 _slowValue);
 
     /**
+     * @notice Fetch the last update time
+     * @dev    Will revert if is the price feed is invalid
+     * @return _updateTime The last update time
+     */
+    function getLastUpdateTime() external view returns (uint32 _updateTime);
+
+    /**
      * @notice Returns the cumulative tick and liquidity as of each timestamp `secondsAgo` from the current block timestamp
      * @dev To get a time weighted average tick or liquidity-in-range, you must call this with two values, one representing
      * the beginning of the period and another for the end of the period. E.g., to get the last hour time-weighted average tick,
@@ -263,4 +314,16 @@ interface IRDOracle {
             int56[] memory tickCumulatives,
             uint160[] memory secondsPerLiquidityCumulativeX128s
         );
+
+    /**
+     * @notice Increase the observation cardinality next
+     * @param _observationCardinalityNext The new observation cardinality next
+     * @return _observationCardinalityNextOld The old observation cardinality next
+     * @return _observationCardinalityNextNew The new observation cardinality next
+     */
+    function increaseObservationCardinalityNext(
+        uint16 _observationCardinalityNext
+    )
+        external
+        returns (uint16 _observationCardinalityNextOld, uint16 _observationCardinalityNextNew);
 }

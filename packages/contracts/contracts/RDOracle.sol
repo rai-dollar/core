@@ -207,9 +207,19 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         uint16 _observationIndex = oracleState.observationIndex;
         (uint32 _lastUpdateTime, , , ) = this.observations(_observationIndex);
 
-        if (_blockTimestamp() - _lastUpdateTime < minObservationDelta) {
+        uint32 _timeSinceLastUpdate = _blockTimestamp() - _lastUpdateTime;
+
+        if (_timeSinceLastUpdate < minObservationDelta) {
             _shouldUpdate = false;
         }
+
+        // Emit event for debugging
+        emit OracleHookCalled(
+            _params.pool,
+            _shouldUpdate,
+            _timeSinceLastUpdate,
+            minObservationDelta
+        );
 
         if (_shouldUpdate) {
             // Get last balances of all tokens in the pool
@@ -274,13 +284,13 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         return _slowResult;
     }
 
+    /// @inheritdoc IRDOracle
     function getFastSlowResultWithValidity()
         external
         view
         returns (uint256 _fastResult, bool _fastValidity, uint256 _slowResult, bool _slowValidity)
     {
         // If the pool doesn't have enough history return false
-
         (_fastResult, _fastValidity) = getFastResultWithValidity();
         (_slowResult, _slowValidity) = getSlowResultWithValidity();
     }
@@ -294,6 +304,12 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         }
 
         return (_fastResult, _slowResult);
+    }
+
+    function getLastUpdateTime() external view returns (uint32 _updateTime) {
+        uint16 _observationIndex = oracleState.observationIndex;
+        (uint32 _lastUpdateTime, , , ) = this.observations(_observationIndex);
+        return _lastUpdateTime;
     }
 
     /// @inheritdoc IRDOracle
@@ -314,6 +330,21 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
                 0,
                 oracleState.observationCardinality
             );
+    }
+
+    /// @inheritdoc IRDOracle
+    function increaseObservationCardinalityNext(
+        uint16 _observationCardinalityNext
+    )
+        external
+        returns (uint16 _observationCardinalityNextOld, uint16 _observationCardinalityNextNew)
+    {
+        _observationCardinalityNextOld = oracleState.observationCardinalityNext;
+        _observationCardinalityNextNew = observations.grow(
+            _observationCardinalityNextOld,
+            _observationCardinalityNext
+        );
+        oracleState.observationCardinalityNext = _observationCardinalityNextNew;
     }
 
     /**
@@ -370,6 +401,10 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         uint160 _sqrtPriceX96 = _convertPriceToSqrtPriceX96(_currentSyntheticRDPriceWad);
         int24 _tick = TickMath.getTickAtSqrtRatio(_sqrtPriceX96);
 
+        // Store old values for event emission
+        int24 _oldTick = oracleState.tick;
+        uint160 _oldSqrtPriceX96 = oracleState.sqrtPriceX96;
+
         // If the tick has changed, update the oracle state and write the observation
         if (_tick != oracleState.tick) {
             (uint16 observationIndex, uint16 observationCardinality) = observations.write(
@@ -386,6 +421,15 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
                 oracleState.observationIndex,
                 oracleState.observationCardinality
             ) = (_sqrtPriceX96, _tick, observationIndex, observationCardinality);
+
+            // Emit event for debugging
+            emit OraclePriceUpdated(
+                _oldTick,
+                _tick,
+                _oldSqrtPriceX96,
+                _sqrtPriceX96,
+                observationIndex
+            );
         } else {
             // otherwise just update the sqrtPriceX96
             oracleState.sqrtPriceX96 = _sqrtPriceX96;
@@ -418,7 +462,7 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     function _convertSqrtPriceX96ToPrice(
         uint160 _sqrtPriceX96
     ) internal pure returns (uint256 _price) {
-        // return uint256(_sqrtPriceX96) ** 2 / 2 ** 192;
+        return uint256(_sqrtPriceX96) ** 2 / 2 ** 192;
     }
 
     /**
