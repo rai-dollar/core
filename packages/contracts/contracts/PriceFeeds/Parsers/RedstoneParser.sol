@@ -25,4 +25,13 @@ library RedstoneParser {
     function parseRedstoneResponse(uint256 requestId) internal view returns (IPriceFeed.Response memory response) {
 
     }
+
+    function isStale(uint256 lastUpdated) public view returns (bool) {
+        return block.timestamp - lastUpdated > C.REDSTONE_STALENESS_THRESHOLD;
+    }
+
+    function isGoodResponse(IPriceFeed.Response memory _response) public view returns (bool) {
+        return _response.success && _response.price > 0 && _response.lastUpdated > 0 && !isStale(_response.lastUpdated);
+    }
+
 }

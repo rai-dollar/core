@@ -52,11 +52,4 @@ library Api3Parser {
         return block.timestamp - lastUpdated > C.API3_STALENESS_THRESHOLD;
     }
 
-    function isGoodResponse(IPriceFeed.Response memory _response) public view returns (bool) {
-        return _response.success && _response.price > 0 && _response.lastUpdated > 0 && !isStale(_response.lastUpdated);
-    }
-
-    function deviationThreshold() public pure returns (uint256) {
-        return C.API3_MAX_PRICE_DEVIATION;
-    }
 }

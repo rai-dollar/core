@@ -17,7 +17,7 @@ import {Constants as C} from "./Common/Constants.sol";
 */
 abstract contract PriceFeedBase is IPriceFeed {
     using LiquityMath for uint256;
-
+    
     // this should be the token / usd oracle
     address public primaryOracle;
     // this is the fallback in case the primary oracle fails
@@ -29,8 +29,6 @@ abstract contract PriceFeedBase is IPriceFeed {
     // The last good price seen from an oracle by Liquity
     Response public lastGoodResponse;
     
-
-
     // The current status of the PricFeed, which determines the conditions for the next price fetch attempt
     Status public status;
 
@@ -45,16 +43,14 @@ abstract contract PriceFeedBase is IPriceFeed {
     // --- Functions ---
 
     // must override with specific logic for each collateral type and oracle combination
-    function fetchPrice() external virtual returns (uint) {
-        if (status == Status.shutdown) {
-            revert Shutdown();
-        }
+    function fetchPrice() external virtual returns (uint256);
 
+    function _fetchTokenOraclePrice() internal returns (uint256 price){
         Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
-        bool isGoodPrimaryResponse = _isGoodPrimaryResponse(primaryResponse);
+        bool isGoodPrimaryResponse = isGoodResponse(primaryResponse, _primaryStalenessThreshold());
         
-
         if (isGoodPrimaryResponse) {
+            _withinDeviationThreshold(primaryResponse);
             _changeStatus(Status.primaryOracle);
             _storeResponse(primaryResponse);
             
@@ -62,49 +58,61 @@ abstract contract PriceFeedBase is IPriceFeed {
         } 
 
         Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
-        bool isGoodFallbackResponse = _isGoodFallbackResponse(fallbackResponse);
+        bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, _fallbackStalenessThreshold());
 
         if (isGoodFallbackResponse) {
+            _withinDeviationThreshold(fallbackResponse);
             _changeStatus(Status.fallbackOracle);
             _storeResponse(fallbackResponse);
             
             return fallbackResponse.price;
-        } 
+        }
 
-        _changeStatus(Status.shutdown);
-        revert NoGoodResponseFromAnyOracle();
+        // if primary and fallback are both bad, shutdown the price feed and revert to last good price
+        if (!isGoodPrimaryResponse && !isGoodFallbackResponse) {
+            _changeStatus(Status.shutdown);
+            return lastGoodResponse.price;
+        }
+
     }
     
-    function _withinDeviationThreshold(Response memory _currentResponse, Response memory _lastGoodResponse, uint256 _deviationThreshold)
+    // deviation threshold is per collateral type
+    function _withinDeviationThreshold(Response memory _currentResponse)
         internal
         pure
         returns (bool)
     {
         // Calculate the price deviation of the oracle market price relative to the canonical price
-        uint256 max = _currentResponse.price * (C.DECIMAL_PRECISION + _deviationThreshold) / 1e18;
-        uint256 min = _lastGoodResponse.price * (C.DECIMAL_PRECISION - _deviationThreshold) / 1e18;
+        uint256 max = _currentResponse.price * (C.DECIMAL_PRECISION + _deviationThreshold()) / C.DECIMAL_PRECISION;
+        uint256 min = lastGoodResponse.price * (C.DECIMAL_PRECISION - _deviationThreshold()) / C.DECIMAL_PRECISION;
 
         return _currentResponse.price >= min && _currentResponse.price <= max;
     }
 
     // --- Overrides ---
-
-    function _getEthUsdPrice() internal virtual returns (uint256 price, bool success);
-
-    // must override with correct logic for each collateral type
-    function _getRate() internal virtual returns (uint256 rate, bool success);
-
-    function _isWithinDeviationThreshold(Response memory _currentResponse) internal virtual returns (bool);
- 
+    /// @notice must override all functions below with the library for the selected oracle
+    
+    // must override with the library of the primary oracle
     function _fetchPriceFromPrimaryOracle() internal virtual returns (Response memory);
 
+    // must override with the library of the fallback oracle
     function _fetchPriceFromFallbackOracle() internal virtual returns (Response memory);
 
-    function _isGoodPrimaryResponse(Response memory _response) internal virtual returns (bool);
+    // must override with the deviation threshold from the library of the primary oracle
+    function _primaryStalenessThreshold() internal pure virtual returns (uint256);
 
-    function _isGoodFallbackResponse(Response memory _response) internal virtual returns (bool);
+    // must override with the deviation threshold from the library of the fallback oracle
+    function _fallbackStalenessThreshold() internal pure virtual returns (uint256);
+
+    // must override with the deviation threshold for the collateral type Found in Constants.sol
+    function _deviationThreshold() internal pure virtual returns (uint256);
+    
 
     // --- Helper functions ---
+
+    function isGoodResponse(IPriceFeed.Response memory _response, uint256 _staleThreshold) public view returns (bool) {
+        return _response.success && _response.price > 0 && _response.lastUpdated > 0 && block.timestamp - _response.lastUpdated > _staleThreshold;
+    }
 
     function _changeStatus(Status _status) internal {
         if (status != _status) {

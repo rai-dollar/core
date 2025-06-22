@@ -79,7 +79,4 @@ library ChainlinkParser {
         return _response.success && _response.price > 0 && _response.lastUpdated > 0 && !isStale(_response.lastUpdated);
     }
 
-    function deviationThreshold() public pure returns (uint256) {
-        return C.CHAINLINK_MAX_PRICE_DEVIATION;
-    }
 }
