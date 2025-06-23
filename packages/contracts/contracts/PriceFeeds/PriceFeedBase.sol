@@ -26,10 +26,10 @@ abstract contract PriceFeedBase is IPriceFeed {
     // this is the base token for which the price is being fetched
     IERC20 public token;
 
-    // The last good price seen from an oracle by Liquity
+    // The last good price returned by any oracle
     Response public lastGoodResponse;
     
-    // The current status of the PricFeed, which determines the conditions for the next price fetch attempt
+    // Where the price feed is getting its price: primaryOracle, fallbackOracle, or shutdown
     Status public status;
 
     constructor(address _primaryOracle, address _fallbackOracle, address _token) {
@@ -43,52 +43,42 @@ abstract contract PriceFeedBase is IPriceFeed {
     // --- Functions ---
 
     // must override with specific logic for each collateral type and oracle combination
-    function fetchPrice() external virtual returns (uint256);
+    function fetchPrice(bool _isRedemption) external virtual returns (uint256);
 
-    function _fetchTokenOraclePrice() internal returns (uint256 price){
+/// @notice fetches the price from the primary or fallback oracle
+/// @dev if the primary oracle is good, it will return the price from the primary oracle
+/// @dev if the primary oracle is bad, it will return the price from the fallback oracle
+/// @dev if both oracles are bad, it will return the last good price and enter a shutdown state
+    function _fetchTokenOraclePrice() internal returns (Response memory response){
         Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
         bool isGoodPrimaryResponse = isGoodResponse(primaryResponse, _primaryStalenessThreshold());
         
         if (isGoodPrimaryResponse) {
-            _withinDeviationThreshold(primaryResponse);
             _changeStatus(Status.primaryOracle);
             _storeResponse(primaryResponse);
             
-            return primaryResponse.price;
+            return (primaryResponse.price, true);
         } 
 
         Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
         bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, _fallbackStalenessThreshold());
 
         if (isGoodFallbackResponse) {
-            _withinDeviationThreshold(fallbackResponse);
             _changeStatus(Status.fallbackOracle);
             _storeResponse(fallbackResponse);
             
-            return fallbackResponse.price;
+            return (fallbackResponse.price, true);
         }
 
         // if primary and fallback are both bad, shutdown the price feed and revert to last good price
         if (!isGoodPrimaryResponse && !isGoodFallbackResponse) {
             _changeStatus(Status.shutdown);
-            return lastGoodResponse.price;
+            return (lastGoodResponse.price, false);
         }
 
+        return (0, false);
     }
     
-    // deviation threshold is per collateral type
-    function _withinDeviationThreshold(Response memory _currentResponse)
-        internal
-        pure
-        returns (bool)
-    {
-        // Calculate the price deviation of the oracle market price relative to the canonical price
-        uint256 max = _currentResponse.price * (C.DECIMAL_PRECISION + _deviationThreshold()) / C.DECIMAL_PRECISION;
-        uint256 min = lastGoodResponse.price * (C.DECIMAL_PRECISION - _deviationThreshold()) / C.DECIMAL_PRECISION;
-
-        return _currentResponse.price >= min && _currentResponse.price <= max;
-    }
-
     // --- Overrides ---
     /// @notice must override all functions below with the library for the selected oracle
     
@@ -104,14 +94,16 @@ abstract contract PriceFeedBase is IPriceFeed {
     // must override with the deviation threshold from the library of the fallback oracle
     function _fallbackStalenessThreshold() internal pure virtual returns (uint256);
 
-    // must override with the deviation threshold for the collateral type Found in Constants.sol
-    function _deviationThreshold() internal pure virtual returns (uint256);
+
     
 
     // --- Helper functions ---
 
     function isGoodResponse(IPriceFeed.Response memory _response, uint256 _staleThreshold) public view returns (bool) {
-        return _response.success && _response.price > 0 && _response.lastUpdated > 0 && block.timestamp - _response.lastUpdated > _staleThreshold;
+        return _response.success 
+            && _response.price > 0 
+            && _response.lastUpdated > 0 
+            && block.timestamp - _response.lastUpdated < _staleThreshold;
     }
 
     function _changeStatus(Status _status) internal {

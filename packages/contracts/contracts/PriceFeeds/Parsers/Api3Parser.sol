@@ -19,7 +19,7 @@ library Api3Parser {
         uint32 timestamp;
     }
 
-    function getResponse(address _api3ReaderProxy) public view returns (IPriceFeed.Response memory response) {
+    function getApi3Response(address _api3ReaderProxy) internal view returns (IPriceFeed.Response memory response) {
         Api3Response memory api3Response;
         IApi3ReaderProxy api3ReaderProxy = IApi3ReaderProxy(_api3ReaderProxy);
 
@@ -34,13 +34,8 @@ library Api3Parser {
             response.price = convertedPrice;
             response.lastUpdated = api3Response.timestamp;
 
-            if (isGoodResponse(response)) {
-                response.success = true;
-                return response;
-            } else {
-                response.success = false;
-                return response;
-            }
+            response.success = response.lastUpdated != 0 && response.price != 0;
+            return response;
         } catch {
             if (gasleft() <= gasBefore / 64) revert IPriceFeed.InsufficientGasForExternalCall();
 
@@ -48,8 +43,8 @@ library Api3Parser {
         }
     }
 
-    function isStale(uint256 lastUpdated) public view returns (bool) {
-        return block.timestamp - lastUpdated > C.API3_STALENESS_THRESHOLD;
+    function api3StalenessThreshold() internal pure returns (uint256) {
+        return C.API3_STALENESS_THRESHOLD;
     }
 
 }

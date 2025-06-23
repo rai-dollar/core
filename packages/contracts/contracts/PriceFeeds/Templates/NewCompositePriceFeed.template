@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.24;
+
+import {CompositePriceFeedBase} from "./CompositePriceFeedBase.sol";
+import {Constants as C} from "./Common/Constants.sol";
+import {LiquityMath} from "./Common/LiquityMath.sol";
+
+//import parsers here
+
+///@notice this is a template for a new composite price feed
+contract TemplateCompositePriceFeed is CompositePriceFeedBase {
+    
+    constructor(address _primaryOracle, address _fallbackOracle, address _token, address _rateProvider, address _ethUsdOracle) CompositePriceFeedBase(_primaryOracle, _fallbackOracle, _token, _rateProvider, _ethUsdOracle) {}
+
+    /// @notice must override the following function with oracle / collateral specific logic
+
+    // --- Oracle Overrides ---
+
+    // external function that fetches the price from the primary or fallback oracle
+    function fetchPrice(bool _isRedemption) external override returns (uint256 price, bool success);
+
+    // primary oracle response
+    function _fetchPriceFromPrimaryOracle() internal override returns (Response memory);
+
+    // fallback oracle response
+    function _fetchPriceFromFallbackOracle() internal override returns (Response memory);
+
+    // eth usd price response
+    function _fetchEthUsdPrice() internal view returns (Response memory);
+
+    // canonical conversion rate for lsts
+    function _fetchCanonicalRate() internal view returns (Response memory);
+
+    // --- Threshold Overrides ---
+    function _primaryStalenessThreshold() internal pure override returns (uint256);
+
+    function _fallbackStalenessThreshold() internal pure override returns (uint256);
+
+    function _deviationThreshold() internal pure override returns (uint256);
+
+    
+}

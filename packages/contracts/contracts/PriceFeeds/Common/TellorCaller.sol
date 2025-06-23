@@ -18,7 +18,7 @@ import "../Interfaces/ITellor.sol";
 contract TellorCaller is ITellorCaller {
     ITellor public tellor;
 
-    constructor (address _tellorMasterAddress) public {
+    constructor (address _tellorMasterAddress) {
         tellor = ITellor(_tellorMasterAddress);
     }
 
@@ -42,10 +42,15 @@ contract TellorCaller is ITellorCaller {
         )
     {
         uint256 _count = tellor.getNewValueCountbyRequestId(_requestId);
+        // If no reported values, bail out immediately
+        if (_count == 0) return (false, 0, 0);
+
         uint256 _time =
             tellor.getTimestampbyRequestIDandIndex(_requestId, _count - 1);
         uint256 _value = tellor.retrieveData(_requestId, _time);
-        if (_value > 0) return (true, _value, _time);
-        return (false, 0, _time);
+
+        // Return true if we successfully retrieved data (timestamp > 0 indicates valid data)
+        if (_time > 0) return (true, _value, _time);
+        return (false, 0, 0);
     }
 }

@@ -20,7 +20,9 @@ library ChainlinkParser {
         uint80 answeredInRound;
     }
 
-    function getResponse(address _chainlinkOracle) public view returns (IPriceFeed.Response memory response) {
+    error InvalidPrice();
+
+    function getChainlinkResponse(address _chainlinkOracle) internal view returns (IPriceFeed.Response memory response) {
         ChainlinkResponse memory chainlinkResponse;
         AggregatorV3Interface chainlinkOracle = AggregatorV3Interface(_chainlinkOracle);
 
@@ -37,15 +39,9 @@ library ChainlinkParser {
             uint256 convertedPrice = _convertDecimals(chainlinkResponse.answer, decimals);
             response.price = convertedPrice;
             response.lastUpdated = chainlinkResponse.updatedAt;
- 
-            if (isGoodResponse(response)) {
-                response.success = true;
+            response.success = response.lastUpdated != 0 && response.price != 0;
 
-                return response;
-            } else {
-
-                return response;
-            }
+            return response;
         } catch {
             // Require that enough gas was provided to prevent an OOG revert in the call to Chainlink
             // causing a shutdown. Instead, just revert. Slightly conservative, as it includes gas used
@@ -66,17 +62,13 @@ library ChainlinkParser {
     
     function _convertDecimals(int256 price, uint8 decimals) internal pure returns (uint256) {
         if (price < 0) {
-            revert("Chainlink price is negative");
+            revert InvalidPrice();
         }
         return uint256(price) * 10 ** (18 - decimals);
     }
 
-    function isStale(uint256 lastUpdated) public view returns (bool) {
-        return block.timestamp - lastUpdated > C.CHAINLINK_STALENESS_THRESHOLD;
-    }
-
-    function isGoodResponse(IPriceFeed.Response memory _response) public view returns (bool) {
-        return _response.success && _response.price > 0 && _response.lastUpdated > 0 && !isStale(_response.lastUpdated);
+    function chainlinkStalenessThreshold() public pure returns (uint256) {
+        return C.CHAINLINK_STALENESS_THRESHOLD;
     }
 
 }

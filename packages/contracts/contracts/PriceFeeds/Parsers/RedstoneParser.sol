@@ -2,12 +2,11 @@
 
 pragma solidity 0.8.24;
 
-import "../Common/TellorCaller.sol";
 import "../Interfaces/IPriceFeed.sol";
-
+import {Constants as C} from "../Common/Constants.sol";
 
 /*
-* this library is used to parse the response from the Tellor oracle and convert it to the Response struct
+* this library is used to parse the response from the Redstone oracle and convert it to the Response struct
 */
 
 library RedstoneParser {
@@ -18,7 +17,7 @@ library RedstoneParser {
         bool success;
     }
 
-    function getResponse() public view returns (IPriceFeed.Response memory response) {
+    function getRedstoneResponse() public view returns (IPriceFeed.Response memory response) {
 
     }
 
@@ -26,12 +25,8 @@ library RedstoneParser {
 
     }
 
-    function isStale(uint256 lastUpdated) public view returns (bool) {
-        return block.timestamp - lastUpdated > C.REDSTONE_STALENESS_THRESHOLD;
-    }
-
-    function isGoodResponse(IPriceFeed.Response memory _response) public view returns (bool) {
-        return _response.success && _response.price > 0 && _response.lastUpdated > 0 && !isStale(_response.lastUpdated);
+    function redstoneStalenessThreshold() public pure returns (uint256) {
+        return C.REDSTONE_STALENESS_THRESHOLD;
     }
 
 }
