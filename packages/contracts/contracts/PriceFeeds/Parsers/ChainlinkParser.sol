@@ -22,7 +22,7 @@ library ChainlinkParser {
 
     error InvalidPrice();
 
-    function getChainlinkResponse(address _chainlinkOracle) internal view returns (IPriceFeed.Response memory response) {
+    function getResponse(address _chainlinkOracle) internal view returns (IPriceFeed.Response memory response) {
         ChainlinkResponse memory chainlinkResponse;
         AggregatorV3Interface chainlinkOracle = AggregatorV3Interface(_chainlinkOracle);
 

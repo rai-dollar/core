@@ -12,82 +12,83 @@ interface IWSTEthRateProvider {
     function getRate() external view returns (uint256);
 }
 
-contract WSTETHPriceFeed is CompositePriceFeedBase, ChainlinkParser, Api3Parser {
-    constructor(address _primaryOracle, address _fallbackOracle, address _token, address _rateProvider, address _ethUsdOracle) CompositePriceFeedBase(_primaryOracle, _fallbackOracle, _token, _rateProvider, _ethUsdOracle) {}
+contract WSTETHPriceFeed is CompositePriceFeedBase {
+    Response public lastGoodWstEthUsdResponse;
+
+    event LastGoodWstEthUsdResponse(Oracle ethUsdOracle, uint256 price, uint256 lastUpdated);
+    
+   constructor(OracleConfig memory _marketOracleConfig, OracleConfig memory _ethUsdOracleConfig, address _token, address _rateProvider) CompositePriceFeedBase(_marketOracleConfig, _ethUsdOracleConfig, _token, _rateProvider) {}
 
 
-function fetchPrice(bool _isRedemption) external override returns (uint256 price, bool success) {
-        Response memory stEthUsdPriceResponse = _fetchTokenOraclePrice();
-
+function fetchPrice(bool _isRedemption) external override returns (uint256 price) {
+        Response memory stEthUsdPriceResponse = _fetchMarketOraclePrice();
         Response memory ethUsdPriceResponse = _fetchEthUsdPrice();
-        (uint256 stEthUsdRate, bool stEthUsdRateSuccess) = _fetchCanonicalRate();
+        Response memory stethPerWstethResponse = _fetchCanonicalstEthPerWstethRate();
 
-        if (!stEthUsdPriceResponse.success || !stEthUsdRateSuccess) {
-            return (0, false);
+        if (!stethPerWstethResponse.success) {
+            _setEthUsdPriceSource(PriceSource.lastGoodResponse);
+            return lastGoodEthUsdResponse.price;
         }
 
         // Otherwise, use the primary price calculation:
-        uint256 wstEthUsdPrice;
+        Response memory wstEthUsdResponse;
 
-        if (_isRedemption && _withinDeviationThreshold(stEthUsdPrice, stEthUsdRate, C.STETH_USD_DEVIATION_THRESHOLD)) {
-            // If it's a redemption and within 1%, take the max of (STETH-USD, ETH-USD) to mitigate unwanted redemption arb and convert to WSTETH-USD
-            wstEthUsdPrice = LiquityMath._max(stEthUsdPrice, stEthUsdRate);
+
+        if (_isRedemption && _withinDeviationThreshold(stEthUsdPriceResponse.price, ethUsdPriceResponse.price, C.STETH_USD_DEVIATION_THRESHOLD)) {
+            wstEthUsdResponse = _getRedemptionPrice(stEthUsdPriceResponse, ethUsdPriceResponse, stethPerWstethResponse);
         } else {
-            // Otherwise, just calculate WSTETH-USD price: USD_per_WSTETH = USD_per_STETH * STETH_per_WSTETH
-            wstEthUsdPrice = stEthUsdPrice * stEthUsdRate / 1e18;
+            wstEthUsdResponse.price = stEthUsdPriceResponse.price * stethPerWstethResponse.price / 1e18;
+            wstEthUsdResponse.success = true;
+            wstEthUsdResponse.lastUpdated = block.timestamp;
         }
 
-        lastGoodPrice = wstEthUsdPrice;
+        if (isGoodResponse(wstEthUsdResponse, ethUsdOracle.stalenessThreshold)) {
+            _saveLastGoodEthUsdResponse(wstEthUsdResponse);
+        } else {
+            wstEthUsdResponse = lastGoodWstEthUsdResponse;  
+        }
 
-        return (wstEthUsdPrice, true);
-
+        return wstEthUsdResponse.price;
     }
+
     // --- Oracle Overrides ---
 
-    function _fetchPriceFromPrimaryOracle() internal override returns (Response memory) {
-        return getChainlinkResponse(primaryOracle);
+    function _fetchPriceFromPrimaryOracle() internal view override returns (Response memory) {
+        return ChainlinkParser.getResponse(primaryOracle.oracle);
     }
 
-    function _fetchPriceFromFallbackOracle() internal override returns (Response memory) {
-        return getApi3Response(fallbackOracle);
+    function _fetchPriceFromFallbackOracle() internal view override returns (Response memory) {
+        return Api3Parser.getResponse(fallbackOracle.oracle);
     }
 
-    function _fetchEthUsdPrice() internal view returns (Response memory) {
-        return getChainlinkResponse(ethUsdOracle);
+    function _fetchPrimaryEthUsdPrice() internal view override returns (Response memory) {
+        return ChainlinkParser.getResponse(ethUsdOracle.oracle);
     }
-    
-    function _fetchCanonicalStEthUsdPrice() internal view returns (Response memory response) {
-        Response memory ethUsdPriceResponse = _fetchEthUsdPrice();
-        bool isGoodEthUsdPrice = isGoodResponse(ethUsdPriceResponse, chainlinkStalenessThreshold());
-        (uint256 canonicalRate, bool canonicalRateSuccess) = _fetchCanonicalRate();
 
-        if (!isGoodEthUsdPrice || !canonicalRateSuccess) {
+    function _fetchFallbackEthUsdPrice() internal view override returns (Response memory) {
+        return Api3Parser.getResponse(ethUsdOracleFallback.oracle);
+    }
+
+    function _fetchCanonicalstEthPerWstethRate() internal view returns (Response memory response) {
+        Response memory canonicalRateResponse = _fetchCanonicalRate();
+
+        if (!canonicalRateResponse.success) {
             return response;
         }
 
-        uint256 stEthUsdPrice = _canonicalStEthUsdPrice(canonicalRate, ethUsdPriceResponse.price);
-
-        response.price = stEthUsdPrice;
-        response.lastUpdated = ethUsdPriceResponse.lastUpdated;
-        response.success = true;
-
-        return response;
+        return canonicalRateResponse;
     }
 
-    function _canonicalStEthUsdPrice(uint256 _canonicalRate, uint256 _ethUsdPrice) internal view returns (uint256 stEthUsdPrice) {
-        stEthUsdPrice = _ethUsdPrice * _canonicalRate / 1e18;
-
-        return stEthUsdPrice;
-    }
-
-    function _fetchCanonicalRate() internal view returns (uint256, bool) {
+    function _fetchCanonicalRate() internal override view returns (Response memory response) {
         uint256 gasBefore = gasleft();
 
         try IWSTEthRateProvider(rateProvider).getRate() returns (uint256 stEthPerWstEth) {
             // If rate is 0, return true
-            if (stEthPerWstEth == 0) return (0, false);
-
-            return (stEthPerWstEth, true);
+            if (stEthPerWstEth == 0) return response;
+            response.price = stEthPerWstEth;
+            response.success = true;
+            response.lastUpdated = block.timestamp;
+            return response;
         } catch {
             // Require that enough gas was provided to prevent an OOG revert in the external call
             // causing a shutdown. Instead, just revert. Slightly conservative, as it includes gas used
@@ -96,23 +97,15 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
 
 
             // If call to exchange rate reverted for another reason, return true
-            return (0, true);
+            return response;
         }
     }
 
-    // --- Threshold Overrides ---
-
-    function _primaryStalenessThreshold() internal pure override returns (uint256) {
-        return C.PRIMARY_STALENESS_THRESHOLD;
+    function _saveLastGoodWstEthUsdResponse(Response memory _response) internal {
+        if (_response.success) {
+            lastGoodWstEthUsdResponse = _response;
+            emit LastGoodWstEthUsdResponse(ethUsdOracle, _response.price, _response.lastUpdated);
+        }
     }
-
-    function _fallbackStalenessThreshold() internal pure override returns (uint256) {
-        return Api3Parser.stalenessThreshold();
-    }
-
-    function _deviationThreshold() internal pure override returns (uint256) {
-        return C.WSTETH_DEVIATION_THRESHOLD;
-    }
-
     
 }

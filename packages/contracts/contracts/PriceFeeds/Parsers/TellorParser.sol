@@ -17,7 +17,7 @@ library TellorParser {
         uint256 timestamp;
         bool success;
     }
-    function getTellorResponse() internal view returns (IPriceFeed.Response memory response) {
+    function getResponse() internal view returns (IPriceFeed.Response memory response) {
     }
 
     function tellorStalenessThreshold() internal pure returns (uint256) {

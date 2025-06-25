@@ -17,7 +17,7 @@ library RedstoneParser {
         bool success;
     }
 
-    function getRedstoneResponse() public view returns (IPriceFeed.Response memory response) {
+    function getResponse() public view returns (IPriceFeed.Response memory response) {
 
     }
 

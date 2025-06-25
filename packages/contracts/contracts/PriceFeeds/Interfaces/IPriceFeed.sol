@@ -3,10 +3,10 @@
 pragma solidity 0.8.24;
 
 interface IPriceFeed {
-    enum Status {
+    enum PriceSource {
         primaryOracle, 
         fallbackOracle,
-        shutdown
+        lastGoodResponse
     }
 
     struct Response {
@@ -15,13 +15,23 @@ interface IPriceFeed {
         bool success;
     }
 
+    struct Oracle {
+        address oracle;
+        uint256 stalenessThreshold;
+    }
+
+    struct OracleConfig {
+        address primaryOracle;
+        address fallbackOracle;
+        uint256 primaryStalenessThreshold;
+        uint256 fallbackStalenessThreshold;
+    }
+
     // --- Events ---
-    event LastGoodResponseUpdated(uint _lastGoodPrice, uint256 timestamp);
-    event PriceFeedStatusChanged(Status newStatus);
     error NoGoodResponseFromAnyOracle();
     error InsufficientGasForExternalCall();
     error Shutdown();
    
     // --- Function ---
-    function fetchPrice() external returns (uint);
+    function fetchPrice(bool _isRedemption) external returns (uint);
 }

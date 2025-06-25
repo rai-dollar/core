@@ -31,6 +31,7 @@ contract TemplateCompositePriceFeed is CompositePriceFeedBase {
 
     // canonical conversion rate for lsts
     function _fetchCanonicalRate() internal view returns (Response memory);
+    
 
     // --- Threshold Overrides ---
     function _primaryStalenessThreshold() internal pure override returns (uint256);

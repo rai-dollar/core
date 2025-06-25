@@ -19,7 +19,7 @@ library Api3Parser {
         uint32 timestamp;
     }
 
-    function getApi3Response(address _api3ReaderProxy) internal view returns (IPriceFeed.Response memory response) {
+    function getResponse(address _api3ReaderProxy) internal view returns (IPriceFeed.Response memory response) {
         Api3Response memory api3Response;
         IApi3ReaderProxy api3ReaderProxy = IApi3ReaderProxy(_api3ReaderProxy);
 
