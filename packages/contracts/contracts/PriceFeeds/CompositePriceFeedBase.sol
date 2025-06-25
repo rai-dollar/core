@@ -25,71 +25,83 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
     Response public lastGoodEthUsdResponse;
 
     //where the eth/usd price is coming from: primaryOracle, fallbackOracle, or lastGoodResponse
-    PriceSource public ethUsdPriceSource;
+    PriceSource public compositePriceSource;
 
     event EthUsdPriceFailed(address ethUsdOracle);
     event CanonicalRateFailed(address rateProvider);
     event LastGoodEthUsdResponse(uint256 price, uint256 lastUpdated);
-    event EthUsdPriceSourceChanged(PriceSource ethUsdPriceSource);
+    event CompositePriceSourceChanged(PriceSource compositePriceSource);
 
     constructor(
         OracleConfig memory _marketOracleConfig,
         OracleConfig memory _ethUsdOracleConfig,
         address _token, 
-        address _rateProvider
-        ) PriceFeedBase(_marketOracleConfig, _token) {
+        address _rateProvider,
+        uint256 _deviationThreshold
+        ) PriceFeedBase(_marketOracleConfig, _token, _deviationThreshold) {
         rateProvider = _rateProvider;
         ethUsdOracle.oracle = _ethUsdOracleConfig.primaryOracle;
         ethUsdOracle.stalenessThreshold = _ethUsdOracleConfig.primaryStalenessThreshold;
         ethUsdOracleFallback.oracle = _ethUsdOracleConfig.fallbackOracle;
         ethUsdOracleFallback.stalenessThreshold = _ethUsdOracleConfig.fallbackStalenessThreshold;
-        ethUsdPriceSource = PriceSource.primaryOracle;
+        compositePriceSource = PriceSource.primaryOracle;
     }
     
     // --- Internal Functions ---
-    
-    // deviation threshold is per collateral type
-    function _withinDeviationThreshold(uint256 _priceToCheck, uint256 _referencePrice, uint256 _deviationThreshold)
-        internal
-        pure
-        returns (bool)
-    {
-        // Calculate the price deviation of the oracle market price relative to the canonical price
-        uint256 max = _referencePrice * (C.DECIMAL_PRECISION + _deviationThreshold) / 1e18;
-        uint256 min = _referencePrice * (C.DECIMAL_PRECISION - _deviationThreshold) / 1e18;
-
-        return _priceToCheck >= min && _priceToCheck <= max;
-    }
-    
+        
     // gets eth/usd price from the primary or fallback oracle
     // if the price is not available, it will return the last good price
     // if the price is not available from the primary or fallback oracle, it will return the last good price
 
     function _fetchEthUsdPrice() internal returns (Response memory) {
-        if (ethUsdPriceSource == PriceSource.lastGoodResponse) {
+        if (compositePriceSource == PriceSource.lastGoodResponse) {
             return lastGoodEthUsdResponse;
         }
 
+        if (compositePriceSource == PriceSource.primaryOracle) {
+            // get primary response
         Response memory primaryEthUsdPriceResponse = _fetchPrimaryEthUsdPrice();
         bool primaryEthUsdPriceSuccess = isGoodResponse(primaryEthUsdPriceResponse, ethUsdOracle.stalenessThreshold);
-
+    
         if (primaryEthUsdPriceSuccess) {
-            _setEthUsdPriceSource(PriceSource.primaryOracle);
             _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
             return primaryEthUsdPriceResponse;
+        } else {
+            Response memory fallbackEthUsdPriceResponse = _fetchFallbackEthUsdPrice();
+            bool fallbackEthUsdPriceSuccess = isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold);
+
+            if (fallbackEthUsdPriceSuccess) {
+                _setCompositePriceSource(PriceSource.fallbackOracle);
+                _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
+                return fallbackEthUsdPriceResponse;
+            } else {
+                _setCompositePriceSource(PriceSource.lastGoodResponse);
+                return lastGoodEthUsdResponse;
+            }
+        }
         }
 
+        if (compositePriceSource == PriceSource.fallbackOracle) {
         Response memory fallbackEthUsdPriceResponse = _fetchFallbackEthUsdPrice();
         bool fallbackEthUsdPriceSuccess = isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold);
-
-        if (fallbackEthUsdPriceSuccess) {
-            _setEthUsdPriceSource(PriceSource.fallbackOracle);
+        // get primary response
+        Response memory primaryEthUsdPriceResponse = _fetchPrimaryEthUsdPrice();
+        bool primaryEthUsdPriceSuccess = isGoodResponse(primaryEthUsdPriceResponse, ethUsdOracle.stalenessThreshold) && _withinDeviationThreshold(primaryEthUsdPriceResponse.price, fallbackEthUsdPriceResponse.price, deviationThreshold);
+        // if the primary oracle is good and within the deviation threshold, set the eth/usd price source to the primary oracle
+        if (primaryEthUsdPriceSuccess) {
+            _setCompositePriceSource(PriceSource.primaryOracle);
+            _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
+            return primaryEthUsdPriceResponse;
+            // if the primary oracle is not good, return fallback response
+        } else if (fallbackEthUsdPriceSuccess && !primaryEthUsdPriceSuccess) {
             _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
             return fallbackEthUsdPriceResponse;
+            // if both oracles are bad, shutdown the price feed and revert to last good price
+        } else {
+            _setCompositePriceSource(PriceSource.lastGoodResponse);
+            return lastGoodEthUsdResponse;
         }
-
-        _setEthUsdPriceSource(PriceSource.lastGoodResponse);
-        return lastGoodEthUsdResponse;
+        }
     }
 
     // --- Overrides ---
@@ -116,10 +128,28 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
         }
     }
 
-    function _setEthUsdPriceSource(PriceSource _priceSource) internal virtual {
-        if (ethUsdPriceSource != _priceSource) {
-            ethUsdPriceSource = _priceSource;
-            emit EthUsdPriceSourceChanged(ethUsdPriceSource);
+    function _setCompositePriceSource(PriceSource _priceSource) internal virtual {
+        if (compositePriceSource != _priceSource) {
+            compositePriceSource = _priceSource;
+            emit CompositePriceSourceChanged(compositePriceSource);
+        }
+
+        if (_priceSource == PriceSource.lastGoodResponse) {
+            _setMarketPriceSource(PriceSource.lastGoodResponse);
+            emit ShutdownInitiated("Composite Oracle Shut Down", block.number);
+        }
+    }
+
+    // if composite oracle is in shutdown state, also shut down the market oracle
+    function _setMarketPriceSource(PriceSource _marketPriceSource) internal virtual override {
+        if (marketPriceSource != _marketPriceSource) {
+            marketPriceSource = _marketPriceSource;
+            emit MarketPriceSourceChanged(marketPriceSource);
+        }
+
+        if (_marketPriceSource == PriceSource.lastGoodResponse) {
+            _setCompositePriceSource(PriceSource.lastGoodResponse);
+            emit ShutdownInitiated("Market Oracle Shut Down", block.number);
         }
     }
 

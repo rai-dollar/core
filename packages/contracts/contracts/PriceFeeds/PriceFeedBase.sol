@@ -22,9 +22,10 @@ abstract contract PriceFeedBase is IPriceFeed {
     Oracle public primaryOracle;
     // this is the fallback in case the primary oracle fails
     Oracle public fallbackOracle;
-    
     // this is the base token for which the price is being fetched
     IERC20 public token;
+
+    uint256 public deviationThreshold;
 
     // The last good price returned by any oracle
     Response public lastGoodResponse;
@@ -34,8 +35,9 @@ abstract contract PriceFeedBase is IPriceFeed {
     
     event MarketPriceSourceChanged(PriceSource marketPriceSource);
     event LastGoodMarketResponseUpdated(uint256 price, uint256 lastUpdated);
+    event ShutdownInitiated(string reason, uint256 blockNumber);
     
-    constructor(OracleConfig memory _marketOracleConfig, address _token) {
+    constructor(OracleConfig memory _marketOracleConfig, address _token, uint256 _deviationThreshold) {
         primaryOracle.oracle = _marketOracleConfig.primaryOracle;
         primaryOracle.stalenessThreshold = _marketOracleConfig.primaryStalenessThreshold;
 
@@ -45,6 +47,7 @@ abstract contract PriceFeedBase is IPriceFeed {
         token = IERC20(_token);
         assert(token.decimals() != 0);
         marketPriceSource = PriceSource.primaryOracle;
+        deviationThreshold = _deviationThreshold;
     }
 
     // --- Functions ---
@@ -62,6 +65,9 @@ abstract contract PriceFeedBase is IPriceFeed {
             return lastGoodResponse;
         }
 
+        // if the price feed is using the primary oracle
+        if(marketPriceSource == PriceSource.primaryOracle) {
+            // get primary response
         Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
         bool isGoodPrimaryResponse = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold);
         
@@ -70,21 +76,51 @@ abstract contract PriceFeedBase is IPriceFeed {
             _storeResponse(primaryResponse);
             
             return primaryResponse;
-        } 
+        } else {
+            // if primary is not good, get fallback response
+            Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
+            bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
 
+            if (isGoodFallbackResponse) {
+                _setMarketPriceSource(PriceSource.fallbackOracle);
+                _storeResponse(fallbackResponse);
+                return fallbackResponse;
+            } else {
+                // if both oracles are bad, shutdown the price feed and revert to last good price
+                _setMarketPriceSource(PriceSource.lastGoodResponse);
+                return lastGoodResponse;
+            }
+        }
+        }
+        // if the price feed is using the fallback oracle
+        if(marketPriceSource == PriceSource.fallbackOracle) {
+        // get fallback response
         Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
         bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
 
-        if (isGoodFallbackResponse) {
-            _setMarketPriceSource(PriceSource.fallbackOracle);
-            _storeResponse(fallbackResponse);
-            
-            return fallbackResponse;
-        }
+        // get primary response
+        Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
 
-        // if primary and fallback are both bad, shutdown the price feed and revert to last good price
-        _setMarketPriceSource(PriceSource.lastGoodResponse);
-        return lastGoodResponse;
+        bool isGoodPrimaryResponse = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold) && _withinDeviationThreshold(primaryResponse.price, fallbackResponse.price, deviationThreshold);
+
+        if (isGoodPrimaryResponse) {
+            // if the primary oracle is good and within the deviation threshold, set the market price source to the primary oracle and return the primary response
+            _setMarketPriceSource(PriceSource.primaryOracle);
+            _storeResponse(primaryResponse);
+            return primaryResponse;
+        } else if (isGoodFallbackResponse && !isGoodPrimaryResponse) {
+            // if the primary oracle is not good, return fallback response
+            _storeResponse(fallbackResponse);
+            return fallbackResponse;            
+        } else {
+            // if primary and fallback are both bad, shutdown the price feed and revert to last good price
+            _setMarketPriceSource(PriceSource.lastGoodResponse);
+            return lastGoodResponse;
+        }
+        } else {
+            // oracle in shutdown state, return last good response
+            return lastGoodResponse;
+        }
     }
     
     // --- Overrides ---
@@ -105,16 +141,33 @@ abstract contract PriceFeedBase is IPriceFeed {
             && block.timestamp - _response.lastUpdated < _staleThreshold;
     }
 
-    function _setMarketPriceSource(PriceSource _marketPriceSource) internal virtual{
+    function _setMarketPriceSource(PriceSource _marketPriceSource) internal virtual {
         if (marketPriceSource != _marketPriceSource) {
             marketPriceSource = _marketPriceSource; 
             emit MarketPriceSourceChanged(marketPriceSource);
+        }
+
+        if (_marketPriceSource == PriceSource.lastGoodResponse) {
+            emit ShutdownInitiated("Market Oracle Failure", block.number);
         }
     }
 
     function _storeResponse(Response memory _response) internal {
         lastGoodResponse = _response;
         emit LastGoodMarketResponseUpdated(_response.price, _response.lastUpdated);
+    }
+
+        // deviation threshold is per collateral type
+    function _withinDeviationThreshold(uint256 _priceToCheck, uint256 _referencePrice, uint256 _deviationThreshold)
+        internal
+        pure
+        returns (bool)
+    {
+        // Calculate the price deviation of the oracle market price relative to the canonical price
+        uint256 max = _referencePrice * (C.DECIMAL_PRECISION + _deviationThreshold) / 1e18;
+        uint256 min = _referencePrice * (C.DECIMAL_PRECISION - _deviationThreshold) / 1e18;
+
+        return _priceToCheck >= min && _priceToCheck <= max;
     }
 
 

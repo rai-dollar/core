@@ -5,8 +5,6 @@ pragma solidity 0.8.24;
 import {CompositePriceFeedBase} from "./CompositePriceFeedBase.sol";
 import {ChainlinkParser} from "./Parsers/ChainlinkParser.sol";
 import {Api3Parser} from "./Parsers/Api3Parser.sol";
-import {Constants as C} from "./Common/Constants.sol";
-import {LiquityMath} from "./Common/LiquityMath.sol";
 
 interface IWSTEthRateProvider {
     function getRate() external view returns (uint256);
@@ -15,9 +13,9 @@ interface IWSTEthRateProvider {
 contract WSTETHPriceFeed is CompositePriceFeedBase {
     Response public lastGoodWstEthUsdResponse;
 
-    event LastGoodWstEthUsdResponse(Oracle ethUsdOracle, uint256 price, uint256 lastUpdated);
+    event WstEthUsdResponse(uint256 price, uint256 lastUpdated);
     
-   constructor(OracleConfig memory _marketOracleConfig, OracleConfig memory _ethUsdOracleConfig, address _token, address _rateProvider) CompositePriceFeedBase(_marketOracleConfig, _ethUsdOracleConfig, _token, _rateProvider) {}
+   constructor(OracleConfig memory _marketOracleConfig, OracleConfig memory _ethUsdOracleConfig, address _token, address _rateProvider, uint256 _deviationThreshold) CompositePriceFeedBase(_marketOracleConfig, _ethUsdOracleConfig, _token, _rateProvider, _deviationThreshold) {}
 
 
 function fetchPrice(bool _isRedemption) external override returns (uint256 price) {
@@ -26,25 +24,26 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
         Response memory stethPerWstethResponse = _fetchCanonicalstEthPerWstethRate();
 
         if (!stethPerWstethResponse.success) {
-            _setEthUsdPriceSource(PriceSource.lastGoodResponse);
-            return lastGoodEthUsdResponse.price;
+            _setCompositePriceSource(PriceSource.lastGoodResponse);
+            return lastGoodWstEthUsdResponse.price;
         }
 
         // Otherwise, use the primary price calculation:
         Response memory wstEthUsdResponse;
 
 
-        if (_isRedemption && _withinDeviationThreshold(stEthUsdPriceResponse.price, ethUsdPriceResponse.price, C.STETH_USD_DEVIATION_THRESHOLD)) {
+        if (_isRedemption && _withinDeviationThreshold(stEthUsdPriceResponse.price, ethUsdPriceResponse.price, deviationThreshold)) {
             wstEthUsdResponse = _getRedemptionPrice(stEthUsdPriceResponse, ethUsdPriceResponse, stethPerWstethResponse);
         } else {
             wstEthUsdResponse.price = stEthUsdPriceResponse.price * stethPerWstethResponse.price / 1e18;
-            wstEthUsdResponse.success = true;
+            wstEthUsdResponse.success = stEthUsdPriceResponse.price != 0 && stethPerWstethResponse.price != 0;
             wstEthUsdResponse.lastUpdated = block.timestamp;
         }
 
         if (isGoodResponse(wstEthUsdResponse, ethUsdOracle.stalenessThreshold)) {
-            _saveLastGoodEthUsdResponse(wstEthUsdResponse);
+            _saveLastGoodWstEthUsdResponse(wstEthUsdResponse);
         } else {
+            _setCompositePriceSource(PriceSource.lastGoodResponse);
             wstEthUsdResponse = lastGoodWstEthUsdResponse;  
         }
 
@@ -96,7 +95,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             if (gasleft() <= gasBefore / 64) revert InsufficientGasForExternalCall();
 
 
-            // If call to exchange rate reverted for another reason, return true
+            // If call to exchange rate reverted for another reason, return success = false
             return response;
         }
     }
@@ -104,7 +103,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
     function _saveLastGoodWstEthUsdResponse(Response memory _response) internal {
         if (_response.success) {
             lastGoodWstEthUsdResponse = _response;
-            emit LastGoodWstEthUsdResponse(ethUsdOracle, _response.price, _response.lastUpdated);
+            emit WstEthUsdResponse(_response.price, _response.lastUpdated);
         }
     }
     
