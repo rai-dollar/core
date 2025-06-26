@@ -100,35 +100,35 @@ abstract contract PriceFeedBase is IPriceFeed {
         
         // if the price feed is using the fallback oracle and the fallback oracle is set-
         if(marketPriceSource == PriceSource.fallbackOracle) {
-        // get fallback response
-        Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
-        bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
+            // get fallback response
+            Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
+            bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
 
-        // get primary response
-        Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
+            // get primary response
+            Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
 
-        bool safeToUsePrimary = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold) &&
-        isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold) &&
-         _withinDeviationThreshold(primaryResponse.price, fallbackResponse.price, C.FALLBACK_PRIMARY_DEVIATION_THRESHOLD);
+            bool safeToUsePrimary = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold) &&
+            isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold) &&
+            _withinDeviationThreshold(primaryResponse.price, fallbackResponse.price, C.FALLBACK_PRIMARY_DEVIATION_THRESHOLD);
 
-           if (safeToUsePrimary) {
-            // if the primary oracle is good and within the deviation threshold, set the market price source to the primary oracle and return the primary response
-            _setMarketPriceSource(PriceSource.primaryOracle);
-            _storeResponse(primaryResponse);
-            return primaryResponse;
-          } else if (isGoodFallbackResponse && !safeToUsePrimary) {
-            // if the primary oracle is not safe to use, return fallback response
-            _storeResponse(fallbackResponse);
-            return fallbackResponse;            
-          } else {
-            // if primary and fallback are both bad, shutdown the price feed and revert to last good price
-            _setMarketPriceSource(PriceSource.lastGoodResponse);
-            return lastGoodResponse;
-          }
-         } else {
-            // oracle in shutdown state, return last good response
-            return lastGoodResponse;
+                if (safeToUsePrimary) {
+                    // if the primary oracle is good and within the deviation threshold, set the market price source to the primary oracle and return the primary response
+                    _setMarketPriceSource(PriceSource.primaryOracle);
+                    _storeResponse(primaryResponse);
+                    return primaryResponse;
+                } else if (isGoodFallbackResponse && !safeToUsePrimary) {
+                    // if the primary oracle is not safe to use, return fallback response
+                    _storeResponse(fallbackResponse);
+                    return fallbackResponse;            
+                } else {
+                    // if primary and fallback are both bad, shutdown the price feed and revert to last good price
+                    _setMarketPriceSource(PriceSource.lastGoodResponse);
+                    return lastGoodResponse;
+                }
         }
+        
+        // oracle not using primary or fallback oracle, in shutdown state, return last good response
+        return lastGoodResponse;
     }
     
     // --- Overrides ---
