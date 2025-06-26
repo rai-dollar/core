@@ -62,7 +62,7 @@ module.exports = {
             gasPrice: process.env.GAS_PRICE ? parseInt(process.env.GAS_PRICE) : 20000000000,
             forking: {
                 url: alchemyUrl(),
-                blockNumber: process.env.BLOCK_NUMBER ? parseInt(process.env.BLOCK_NUMBER) : 12152522
+                blockNumber: process.env.BLOCK_NUMBER ? parseInt(process.env.BLOCK_NUMBER) : 22785676
             }
         }
     },

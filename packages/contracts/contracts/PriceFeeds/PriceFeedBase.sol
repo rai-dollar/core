@@ -96,12 +96,11 @@ abstract contract PriceFeedBase is IPriceFeed {
             // if the fallback oracle is not set, shutdown the price feed and revert to last good price
             _setMarketPriceSource(PriceSource.lastGoodResponse);
             return lastGoodResponse;
+          }
          }
         }
-        }
-        // if the price feed is using the fallback oracle
-        if(marketPriceSource == PriceSource.fallbackOracle) {
-            assert(fallbackOracle.oracle != address(0));
+        // if the price feed is using the fallback oracle and the fallback oracle is set-
+        if(marketPriceSource == PriceSource.fallbackOracle && fallbackOracle.oracle != address(0)) {
         // get fallback response
         Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
         bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);

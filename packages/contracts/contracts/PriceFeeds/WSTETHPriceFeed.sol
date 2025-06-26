@@ -7,7 +7,7 @@ import {ChainlinkParser} from "./Parsers/ChainlinkParser.sol";
 import {Api3Parser} from "./Parsers/Api3Parser.sol";
 
 interface IWSTEthRateProvider {
-    function getRate() external view returns (uint256);
+    function stEthPerToken() external view returns (uint256);
 }
 
 contract WSTETHPriceFeed is CompositePriceFeedBase {
@@ -81,7 +81,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
     function _fetchCanonicalRate() internal override view returns (Response memory response) {
         uint256 gasBefore = gasleft();
 
-        try IWSTEthRateProvider(rateProvider).getRate() returns (uint256 stEthPerWstEth) {
+        try IWSTEthRateProvider(rateProvider).stEthPerToken() returns (uint256 stEthPerWstEth) {
             // If rate is 0, return true
             if (stEthPerWstEth == 0) return response;
             response.price = stEthPerWstEth;
