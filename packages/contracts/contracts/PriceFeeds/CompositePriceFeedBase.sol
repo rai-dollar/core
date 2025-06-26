@@ -6,15 +6,7 @@ import {PriceFeedBase} from "./PriceFeedBase.sol";
 import {LiquityMath} from "./Common/LiquityMath.sol";
 import {Constants as C} from "./Common/Constants.sol";
 
-/**
-* this contract is used to fetch the price of a token from a composite of two oracles
-* the primary/fallback oracle is used to fetch the price of the token in ETH
-* the ethUsdOracle is used to fetch the price of ETH in USD
-* the price of the token in USD is then calculated by multiplying the price of the token in ETH by the price of ETH in USD
-* if the price of the token in ETH is not available, the price of the token in USD is fetched from the rate provider
-* if the price of ETH in USD is not available, the price of the token in USD is fetched from the first oracle
-* if both oracles are not available, the price of the token in USD is fetched from the rate provider
- */
+
 abstract contract CompositePriceFeedBase is PriceFeedBase {
     Oracle public ethUsdOracle;
     Oracle public ethUsdOracleFallback;
@@ -61,52 +53,56 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
 
         if (compositePriceSource == PriceSource.primaryOracle) {
             // get primary response
-        Response memory primaryEthUsdPriceResponse = _fetchPrimaryEthUsdPrice();
-        bool primaryEthUsdPriceSuccess = isGoodResponse(primaryEthUsdPriceResponse, ethUsdOracle.stalenessThreshold);
+            Response memory primaryEthUsdPriceResponse = _fetchPrimaryEthUsdPrice();
+            bool primaryEthUsdPriceSuccess = isGoodResponse(primaryEthUsdPriceResponse, ethUsdOracle.stalenessThreshold);
     
-        if (primaryEthUsdPriceSuccess) {
-            _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
-            return primaryEthUsdPriceResponse;
-        } else if (!primaryEthUsdPriceSuccess && ethUsdOracleFallback.oracle != address(0)) {
-            Response memory fallbackEthUsdPriceResponse = _fetchFallbackEthUsdPrice();
-            bool fallbackEthUsdPriceSuccess = isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold);
+                if (primaryEthUsdPriceSuccess) {
+                _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
+                return primaryEthUsdPriceResponse;
 
-            if (fallbackEthUsdPriceSuccess) {
-                _setCompositePriceSource(PriceSource.fallbackOracle);
-                _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
-                return fallbackEthUsdPriceResponse;
-            } else {
-                _setCompositePriceSource(PriceSource.lastGoodResponse);
-                return lastGoodEthUsdResponse;
-            }
-        } else {
-            // if the fallback oracle is not set, shutdown the price feed and revert to last good price
-            _setCompositePriceSource(PriceSource.lastGoodResponse);
-            return lastGoodEthUsdResponse;
-        }
+                } else if (!primaryEthUsdPriceSuccess && ethUsdOracleFallback.oracle != address(0)) {
+                    Response memory fallbackEthUsdPriceResponse = _fetchFallbackEthUsdPrice();
+                    bool fallbackEthUsdPriceSuccess = isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold);
+
+                        if (fallbackEthUsdPriceSuccess) {
+                            _setCompositePriceSource(PriceSource.fallbackOracle);
+                            _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
+                            return fallbackEthUsdPriceResponse;
+                        } else {
+                            _setCompositePriceSource(PriceSource.lastGoodResponse);
+                            return lastGoodEthUsdResponse;
+                        }
+                } else {
+                    // if the fallback oracle is not set, shutdown the price feed and revert to last good price
+                    _setCompositePriceSource(PriceSource.lastGoodResponse);
+                    return lastGoodEthUsdResponse;
+                }
         }
         
         // if the price is not available from the primary oracle, fetch from the fallback oracle
         if (compositePriceSource == PriceSource.fallbackOracle) {
-        Response memory fallbackEthUsdPriceResponse = _fetchFallbackEthUsdPrice();
-        bool fallbackEthUsdPriceSuccess = isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold);
-        // get primary response
-        Response memory primaryEthUsdPriceResponse = _fetchPrimaryEthUsdPrice();
-        bool safeToUseCompositePrimary = isGoodResponse(primaryEthUsdPriceResponse, ethUsdOracle.stalenessThreshold) && isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold) && _withinDeviationThreshold(primaryEthUsdPriceResponse.price, fallbackEthUsdPriceResponse.price, C.FALLBACK_PRIMARY_DEVIATION_THRESHOLD);
-        // if the primary oracle is good and within the deviation threshold, set the eth/usd price source to the primary oracle
-        if (safeToUseCompositePrimary) {
-            _setCompositePriceSource(PriceSource.primaryOracle);
-            _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
-            return primaryEthUsdPriceResponse;
-            // if the primary oracle is not good, return fallback response
-        } else if (fallbackEthUsdPriceSuccess && !safeToUseCompositePrimary) {
-            _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
-            return fallbackEthUsdPriceResponse;
-            // if both oracles are bad, shutdown the price feed and revert to last good price
-        } else {
-            _setCompositePriceSource(PriceSource.lastGoodResponse);
-            return lastGoodEthUsdResponse;
-        }
+
+            Response memory fallbackEthUsdPriceResponse = _fetchFallbackEthUsdPrice();
+            bool fallbackEthUsdPriceSuccess = isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold);
+
+            // get primary response
+            Response memory primaryEthUsdPriceResponse = _fetchPrimaryEthUsdPrice();
+            bool safeToUseCompositePrimary = isGoodResponse(primaryEthUsdPriceResponse, ethUsdOracle.stalenessThreshold) && isGoodResponse(fallbackEthUsdPriceResponse, ethUsdOracleFallback.stalenessThreshold) && _withinDeviationThreshold(primaryEthUsdPriceResponse.price, fallbackEthUsdPriceResponse.price, C.FALLBACK_PRIMARY_DEVIATION_THRESHOLD);
+
+            // if the primary oracle is good and within the deviation threshold, set the eth/usd price source to the primary oracle
+                if (safeToUseCompositePrimary) {
+                    _setCompositePriceSource(PriceSource.primaryOracle);
+                    _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
+                    return primaryEthUsdPriceResponse;
+                // if the primary oracle is not good, return fallback response
+                } else if (fallbackEthUsdPriceSuccess && !safeToUseCompositePrimary) {
+                    _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
+                    return fallbackEthUsdPriceResponse;
+                // if both oracles are bad, shutdown the price feed and revert to last good price
+                } else {
+                    _setCompositePriceSource(PriceSource.lastGoodResponse);
+                    return lastGoodEthUsdResponse;
+                }
         }
     }
 

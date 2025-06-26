@@ -68,40 +68,38 @@ abstract contract PriceFeedBase is IPriceFeed {
 
         // if the price feed is using the primary oracle
         if(marketPriceSource == PriceSource.primaryOracle) {
-            // get primary response
-        Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
-        bool isGoodPrimaryResponse = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold);
-        
-        if (isGoodPrimaryResponse) {
-            _setMarketPriceSource(PriceSource.primaryOracle);
-            _storeResponse(primaryResponse);
+                // get primary response
+            Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
+            bool isGoodPrimaryResponse = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold);
             
-            return primaryResponse;
-        } else {
-            // if fallback oracle is set, get fallback response
-            if (fallbackOracle.oracle != address(0)) {
-            // if primary is not good, get fallback response
-            Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
-            bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
+                if (isGoodPrimaryResponse) {
+                    _setMarketPriceSource(PriceSource.primaryOracle);
+                    _storeResponse(primaryResponse);
+                    
+                    return primaryResponse;
+                } else if (!isGoodPrimaryResponse && fallbackOracle.oracle != address(0)) {
+                // if primary is not good, get fallback response
+                Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
+                bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
 
-            if (isGoodFallbackResponse) {
-                _setMarketPriceSource(PriceSource.fallbackOracle);
-                _storeResponse(fallbackResponse);
-                return fallbackResponse;
-            } else {
-                // if both oracles are bad, shutdown the price feed and revert to last good price
-                _setMarketPriceSource(PriceSource.lastGoodResponse);
-                return lastGoodResponse;
-            }
-          } else {
-            // if the fallback oracle is not set, shutdown the price feed and revert to last good price
-            _setMarketPriceSource(PriceSource.lastGoodResponse);
-            return lastGoodResponse;
-          }
-         }
+                    if (isGoodFallbackResponse) {
+                        _setMarketPriceSource(PriceSource.fallbackOracle);
+                        _storeResponse(fallbackResponse);
+                        return fallbackResponse;
+                    } else {
+                         // if both oracles are bad, shutdown the price feed and revert to last good price
+                        _setMarketPriceSource(PriceSource.lastGoodResponse);
+                        return lastGoodResponse;
+                    }
+                } else {
+                     // if the fallback oracle is not set, shutdown the price feed and revert to last good price
+                     _setMarketPriceSource(PriceSource.lastGoodResponse);
+                     return lastGoodResponse;
+                }
         }
+        
         // if the price feed is using the fallback oracle and the fallback oracle is set-
-        if(marketPriceSource == PriceSource.fallbackOracle && fallbackOracle.oracle != address(0)) {
+        if(marketPriceSource == PriceSource.fallbackOracle) {
         // get fallback response
         Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
         bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
