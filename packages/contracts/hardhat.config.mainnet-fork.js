@@ -14,7 +14,7 @@ const alchemyUrl = () => {
         alchemyAPIKey = secrets.alchemyAPIKey
     }
 
-    return `https://eth-mainnet.alchemyapi.io/v2/${alchemyAPIKey}`
+    return `https://eth-mainnet.g.alchemy.com/v2/${alchemyAPIKey}`
 }
 
 module.exports = {
@@ -62,7 +62,7 @@ module.exports = {
             gasPrice: process.env.GAS_PRICE ? parseInt(process.env.GAS_PRICE) : 20000000000,
             forking: {
                 url: alchemyUrl(),
-                blockNumber: process.env.BLOCK_NUMBER ? parseInt(process.env.BLOCK_NUMBER) : 22785676
+                blockNumber: process.env.BLOCK_NUMBER ? parseInt(process.env.BLOCK_NUMBER) : 12152522
             }
         }
     },

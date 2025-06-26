@@ -79,12 +79,21 @@ contract('PriceFeedFork', async accounts => {
     console.log("BEFORE")
 
     before(async () => {
-        console.log("SETTING UP TEST")
+        console.log("SETTING UP TEST", mainnetForkConfig.url)
         // const stethMarketConfig = ethers.utils.defaultAbiCoder.encode(oracleConfigType, stethMarketOracleConfig)
         // const ethUsdConfig = ethers.utils.defaultAbiCoder.encode(oracleConfigType, ethUsdOracleConfig)
         // select mainnet fork
-        await hre.network.provider.send("hardhat_reset", [mainnetForkConfig])
-        
+        await hre.network.provider.send("hardhat_reset", [
+            {
+                forking: {
+                    jsonRpcUrl: mainnetForkConfig.url,
+                    // blockNumber: mainnetForkConfig.blockNumber
+                }
+            }
+        ])
+        const chainId = await hre.network.provider.send("eth_chainId");
+        console.log("Chain ID:", parseInt(chainId, 16));
+
         console.log("Deploying WSTETHPriceFeed...");
         // deploy price feeds
         wstEthPriceFeed = await WSTETHPriceFeed.new(
