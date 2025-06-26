@@ -77,6 +77,8 @@ abstract contract PriceFeedBase is IPriceFeed {
             
             return primaryResponse;
         } else {
+            // if fallback oracle is set, get fallback response
+            if (fallbackOracle.oracle != address(0)) {
             // if primary is not good, get fallback response
             Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
             bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
@@ -90,10 +92,16 @@ abstract contract PriceFeedBase is IPriceFeed {
                 _setMarketPriceSource(PriceSource.lastGoodResponse);
                 return lastGoodResponse;
             }
+          } else {
+            // if the fallback oracle is not set, shutdown the price feed and revert to last good price
+            _setMarketPriceSource(PriceSource.lastGoodResponse);
+            return lastGoodResponse;
+         }
         }
         }
         // if the price feed is using the fallback oracle
         if(marketPriceSource == PriceSource.fallbackOracle) {
+            assert(fallbackOracle.oracle != address(0));
         // get fallback response
         Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
         bool isGoodFallbackResponse = isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold);
@@ -101,23 +109,25 @@ abstract contract PriceFeedBase is IPriceFeed {
         // get primary response
         Response memory primaryResponse = _fetchPriceFromPrimaryOracle();
 
-        bool isGoodPrimaryResponse = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold) && _withinDeviationThreshold(primaryResponse.price, fallbackResponse.price, deviationThreshold);
+        bool safeToUsePrimary = isGoodResponse(primaryResponse, primaryOracle.stalenessThreshold) &&
+        isGoodResponse(fallbackResponse, fallbackOracle.stalenessThreshold) &&
+         _withinDeviationThreshold(primaryResponse.price, fallbackResponse.price, C.FALLBACK_PRIMARY_DEVIATION_THRESHOLD);
 
-        if (isGoodPrimaryResponse) {
+           if (safeToUsePrimary) {
             // if the primary oracle is good and within the deviation threshold, set the market price source to the primary oracle and return the primary response
             _setMarketPriceSource(PriceSource.primaryOracle);
             _storeResponse(primaryResponse);
             return primaryResponse;
-        } else if (isGoodFallbackResponse && !isGoodPrimaryResponse) {
-            // if the primary oracle is not good, return fallback response
+          } else if (isGoodFallbackResponse && !safeToUsePrimary) {
+            // if the primary oracle is not safe to use, return fallback response
             _storeResponse(fallbackResponse);
             return fallbackResponse;            
-        } else {
+          } else {
             // if primary and fallback are both bad, shutdown the price feed and revert to last good price
             _setMarketPriceSource(PriceSource.lastGoodResponse);
             return lastGoodResponse;
-        }
-        } else {
+          }
+         } else {
             // oracle in shutdown state, return last good response
             return lastGoodResponse;
         }
@@ -169,7 +179,5 @@ abstract contract PriceFeedBase is IPriceFeed {
 
         return _priceToCheck >= min && _priceToCheck <= max;
     }
-
-
 }
 
