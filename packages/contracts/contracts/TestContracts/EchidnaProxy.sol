@@ -40,7 +40,7 @@ contract EchidnaProxy {
     }
 
     function batchLiquidateTrovesPrx(address[] calldata _troveArray) external {
-        troveManager.batchLiquidateTroves(_troveArray);
+        troveManager.batchLiquidate(_troveArray);
     }
 
     function redeemCollateralPrx(

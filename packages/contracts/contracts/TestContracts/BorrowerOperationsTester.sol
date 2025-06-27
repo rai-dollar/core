@@ -23,9 +23,8 @@ contract BorrowerOperationsTester is BorrowerOperations {
     returns (uint)
     {
         uint par = relayer.par();
-        uint accRate = troveManager.accumulatedRate();
         return _getNewICRFromTroveChange(_coll, _debt, _collChange, isCollIncrease,
-                                         _debtChange, isDebtIncrease, _price, par, accRate);
+                                         _debtChange, isDebtIncrease, _price, par);
     }
 
     function getNewTCRFromTroveChange

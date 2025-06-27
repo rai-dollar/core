@@ -506,9 +506,11 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         uint256 lusdToLeaveInSP = LiquityMath._min(MIN_LUSD_IN_SP, totalLUSD);
         uint LUSDInSPForOffsets = totalLUSD - lusdToLeaveInSP; // safe, for the line above
         // Let’s avoid underflow in case of a tiny offset
+        /*
         if (LUSDInSPForOffsets.mul(DECIMAL_PRECISION) <= lastLUSDLossError_Offset) {
             LUSDInSPForOffsets = 0;
         }
+        */
 
         return LUSDInSPForOffsets;
     }

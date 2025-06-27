@@ -74,7 +74,7 @@ interface ITroveManager is ILiquityBase {
 
     function liquidateTroves(uint _n) external;
 
-    function batchLiquidateTroves(address[] calldata _troveArray) external;
+    function batchLiquidate(address[] calldata _troveArray) external;
 
     function redeemCollateral(
         uint _LUSDAmount,
@@ -116,19 +116,21 @@ interface ITroveManager is ILiquityBase {
 
     function getRedemptionFeeWithDecay(uint _ETHDrawn) external view returns (uint);
 
-    function getBorrowingRate() external view returns (uint);
-    function getBorrowingRateWithDecay() external view returns (uint);
+    //function getBorrowingRate() external view returns (uint);
+    //function getBorrowingRateWithDecay() external view returns (uint);
 
-    function getBorrowingFee(uint LUSDDebt) external view returns (uint);
-    function getBorrowingFeeWithDecay(uint _LUSDDebt) external view returns (uint);
+    //function getBorrowingFee(uint LUSDDebt) external view returns (uint);
+    //function getBorrowingFeeWithDecay(uint _LUSDDebt) external view returns (uint);
 
-    function decayBaseRateFromBorrowing() external;
+    //function decayBaseRateFromBorrowing() external;
 
     function getTroveStatus(address _borrower) external view returns (uint);
     
     function getTroveStake(address _borrower) external view returns (uint);
 
     function getTroveDebt(address _borrower) external view returns (uint);
+
+    function getTroveActualDebt(address _borrower) external view returns (uint);
 
     function getTroveColl(address _borrower) external view returns (uint);
 

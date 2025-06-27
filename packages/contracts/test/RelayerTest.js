@@ -86,72 +86,145 @@ contract('Relayer', async accounts => {
     await deploymentHelper.connectLQTYContractsToCore(LQTYContracts, contracts)
   })
 
-  it('controlError(): various errors', async () => {
+  it('rateControlError(): various errors', async () => {
 
     marketPrice = ONE_DOLLAR;
-    error = await relayer.controlError(marketPrice);
+    error = await relayer.rateControlError(marketPrice);
     assert.isTrue(error.eq(toBN(0)));
 
     marketPrice = 0;
-    error = await relayer.controlError(marketPrice);
+    error = await relayer.rateControlError(marketPrice);
+    assert.equal(error, 10**27);
+
+    marketPrice = toBN(95).mul(ONE_CENT);
+    error = await relayer.rateControlError(marketPrice);
+    //assert.equal(error.toString(), toBN(5*10**25).toString());
+    assert.equal(error, 5*10**25);
+
+    marketPrice = toBN(105).mul(ONE_CENT);
+    error = await relayer.rateControlError(marketPrice);
+    //assert.equal(error.toString(), toBN(-5*10**25).toString());
+    assert.equal(error, -5*10**25);
+
+  })
+  it('parControlError(): various errors', async () => {
+
+    marketPrice = ONE_DOLLAR;
+    error = await relayer.parControlError(marketPrice);
+    assert.isTrue(error.eq(toBN(0)));
+
+    marketPrice = 0;
+    error = await relayer.parControlError(marketPrice);
     assert.equal(error, 10**18);
 
     marketPrice = toBN(95).mul(ONE_CENT);
-    error = await relayer.controlError(marketPrice);
+    error = await relayer.parControlError(marketPrice);
     assert.equal(error.toString(), toBN(5*10**16).toString());
 
     marketPrice = toBN(105).mul(ONE_CENT);
-    error = await relayer.controlError(marketPrice);
+    error = await relayer.parControlError(marketPrice);
     assert.equal(error.toString(), toBN(-5*10**16).toString());
 
   })
 
-  it('rampError(): various errors', async () => {
-    eps_1 = toBN(10**15)
-    eps_2 = toBN(3 * 10**15)
+  it('rampErrorDec(): various errors', async () => {
+    eps_1 = toBN(dec(1, 15))
+    eps_2 = toBN(dec(3, 15))
 
     // positive errors
     // full error
     marketPrice = ONE_DOLLAR.sub(eps_2);
-    error = await relayer.controlError(marketPrice);
-    rampError = await relayer.rampError(error, eps_1, eps_2);
+    error = await relayer.parControlError(marketPrice);
+    rampError = await relayer.rampErrorDec(error, eps_1, eps_2);
     assert(rampError.eq(error));
     assert(rampError.eq(toBN(eps_2)));
 
     // ramped error
     marketPrice = ONE_DOLLAR.sub(eps_2.sub(toBN(10000)));
-    error = await relayer.controlError(marketPrice);
-    rampError = await relayer.rampError(error, eps_1, eps_2);
+    error = await relayer.parControlError(marketPrice);
+    rampError = await relayer.rampErrorDec(error, eps_1, eps_2);
     assert.isTrue(rampError.lt(error));
     assert(rampError.lt(toBN(eps_2-10000)));
  
     // zero error
     marketPrice = ONE_DOLLAR.sub(eps_1);
-    error = await relayer.controlError(marketPrice);
-    rampError = await relayer.rampError(error, eps_1, eps_2);
+    error = await relayer.parControlError(marketPrice);
+    rampError = await relayer.rampErrorDec(error, eps_1, eps_2);
     assert.isTrue(rampError.eq(toBN(0)));
     assert(rampError.lt(toBN(eps_1)));
 
     // negative errors
     // full error
     marketPrice = ONE_DOLLAR.add(eps_2);
-    error = await relayer.controlError(marketPrice);
-    rampError = await relayer.rampError(error, eps_1, eps_2);
+    error = await relayer.parControlError(marketPrice);
+    rampError = await relayer.rampErrorDec(error, eps_1, eps_2);
     assert(rampError.eq(error));
 
     // ramped error
     marketPrice = ONE_DOLLAR.add(eps_2.sub(toBN(10000)));
-    error = await relayer.controlError(marketPrice);
+    error = await relayer.parControlError(marketPrice);
 
     assert.isTrue(Math.abs(error) < eps_2)
-    rampError = await relayer.rampError(error, eps_1, eps_2);
+    rampError = await relayer.rampErrorDec(error, eps_1, eps_2);
     assert.isTrue(rampError.gt(error));
     assert(rampError.gt(toBN(-eps_2+10000)));
  
     // zero error
     marketPrice = ONE_DOLLAR.add(eps_1);
-    error = await relayer.controlError(marketPrice);
-    rampError = await relayer.rampError(error, eps_1, eps_2);
+    error = await relayer.parControlError(marketPrice);
+    rampError = await relayer.rampErrorDec(error, eps_1, eps_2);
+    assert.isTrue(rampError.eq(toBN(0)));
+  })
+  it('rampErrorRay(): various errors', async () => {
+    eps_1 = toBN(dec(1, 24))
+    eps_2 = toBN(dec(3, 24))
+
+    // positive errors
+    // full error
+    marketPrice = ONE_DOLLAR.sub(eps_2.div(toBN(10**9)));
+    error = await relayer.rateControlError(marketPrice);
+    rampError = await relayer.rampErrorRay(error, eps_1, eps_2);
+    assert(rampError.eq(error));
+    assert(rampError.eq(toBN(eps_2)));
+
+    // ramped error
+
+    dec_error = eps_2.div(toBN(10**9)).sub(toBN(10000))
+    marketPrice = ONE_DOLLAR.sub(dec_error);
+    error = await relayer.rateControlError(marketPrice);
+    rampError = await relayer.rampErrorRay(error, eps_1, eps_2);
+    assert.isTrue(rampError.lt(error));
+    assert(rampError.lt(dec_error.mul(toBN(10**9))));
+
+ 
+    // zero error
+    marketPrice = ONE_DOLLAR.sub(eps_1.div(toBN(10**9)));
+    error = await relayer.rateControlError(marketPrice);
+    rampError = await relayer.rampErrorRay(error, eps_1, eps_2);
+    assert.isTrue(rampError.eq(toBN(0)));
+    assert(rampError.lt(toBN(eps_1.div(toBN(10**9)))));
+
+    // negative errors
+    // full error
+    marketPrice = ONE_DOLLAR.add(eps_2.div(toBN(10**9)));
+    error = await relayer.rateControlError(marketPrice);
+    rampError = await relayer.rampErrorRay(error, eps_1, eps_2);
+    assert(rampError.eq(error));
+
+    // ramped error
+    dec_error = eps_2.div(toBN(10**9)).sub(toBN(10000));
+    marketPrice = ONE_DOLLAR.add(dec_error);
+    error = await relayer.rateControlError(marketPrice);
+
+    assert.isTrue(Math.abs(error) < eps_2)
+    rampError = await relayer.rampErrorRay(error, eps_1, eps_2);
+    assert.isTrue(rampError.gt(error));
+    assert(rampError.gt(toBN(-dec_error).mul(toBN(10**9))))
+ 
+    // zero error
+    marketPrice = ONE_DOLLAR.add(eps_1.div(toBN(10**9)));
+    error = await relayer.rateControlError(marketPrice);
+    rampError = await relayer.rampErrorRay(error, eps_1, eps_2);
     assert.isTrue(rampError.eq(toBN(0)));
 
   })

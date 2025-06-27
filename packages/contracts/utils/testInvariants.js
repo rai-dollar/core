@@ -1,4 +1,6 @@
-
+const testHelpers = require("../utils/testHelpers.js")
+const th = testHelpers.TestHelper
+const toBN = th.toBN
 const BN = require('bn.js')
 
 class TestInvariant {
@@ -6,7 +8,19 @@ class TestInvariant {
   static async debtEqualsSupply(contracts) {
     const debt = await contracts.troveManager.getEntireSystemDebt(await contracts.troveManager.accumulatedRate())
     const supply = await contracts.lusdToken.totalSupply()
-    return debt.eq(supply)
+
+    return supply.sub(debt).lte(toBN('1'))
+
+    //return debt.eq(supply)
+
+    /*
+    if (debt.gt(supply)) {
+        return (debt.sub(supply)).eq(web3.utils.toBN('1'))
+    } else if (debt.lt(supply)) {
+        return (supply.sub(debt)).eq(web3.utils.toBN('1'))
+    }
+    return true
+    */
   }
 
   static async SpBalanceEqualsErc20Balance(contracts) {

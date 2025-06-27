@@ -146,10 +146,11 @@ contract BorrowerWrappersScript is BorrowerOperationsScript, ETHTransferScript, 
         uint ICR = troveManager.getCurrentICR(address(this), price);
 
         uint LUSDAmount = _collateral.mul(price).div(ICR);
-        uint borrowingRate = troveManager.getBorrowingRateWithDecay();
-        uint netDebt = LUSDAmount.mul(LiquityMath.DECIMAL_PRECISION).div(LiquityMath.DECIMAL_PRECISION.add(borrowingRate));
+        //uint borrowingRate = troveManager.getBorrowingRateWithDecay();
+        //uint netDebt = LUSDAmount.mul(LiquityMath.DECIMAL_PRECISION).div(LiquityMath.DECIMAL_PRECISION.add(borrowingRate));
 
-        return netDebt;
+        //return netDebt;
+        return LUSDAmount;
     }
 
     function _requireUserHasTrove(address _depositor) internal view {

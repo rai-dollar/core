@@ -69,10 +69,15 @@ contract LiquityBase is BaseMath, ILiquityBase {
     }
 
     function getEntireSystemDebt(uint accumulatedRate) public view returns (uint entireSystemDebt) {
+        //return _actualDebt(getEntireNormalizedSystemDebt(), accumulatedRate);
+        return getEntireNormalizedSystemDebt().mul(accumulatedRate).div(RATE_PRECISION);
+    }
+
+    function getEntireNormalizedSystemDebt() public view returns (uint entireSystemDebt) {
         uint activeDebt = activePool.getLUSDDebt();
         uint closedDebt = defaultPool.getLUSDDebt();
 
-        return (activeDebt.add(closedDebt)).mul(accumulatedRate).div(RATE_PRECISION);
+        return activeDebt.add(closedDebt);
     }
 
     function updatePar() public returns (uint par) {
@@ -84,15 +89,33 @@ contract LiquityBase is BaseMath, ILiquityBase {
         normDebt = debt.mul(RATE_PRECISION).div(rate);
 
         // Round up if rounding caused an underestimation
+        /*
         if (normDebt.mul(rate).div(RATE_PRECISION) < debt) {
             normDebt += 1;
         }
+        */
     }
 
+    // Returns the actual debt from normalized debt
+    function _actualDebt(uint256 normalizedDebt, uint256 rate) internal pure returns (uint256 actualDebt) {
+        actualDebt = normalizedDebt.mul(rate).div(RATE_PRECISION);
+
+        // Round up if rounding caused an underestimation
+        /*
+        if (actualDebt.mul(RATE_PRECISION).div(rate) < normalizedDebt) {
+            actualDebt += 1;
+        }
+        */
+
+    }
+
+    /*
     // Returns the actual debt from normalized debt
     function _actualDebt(uint256 normalizedDebt, uint256 rate) internal pure returns (uint256) {
         return normalizedDebt.mul(rate).div(RATE_PRECISION);
     }
+    */
+
 
     function _getTCR(uint _price, uint _accRate) internal view returns (uint TCR) {
         uint entireSystemColl = getEntireSystemColl();

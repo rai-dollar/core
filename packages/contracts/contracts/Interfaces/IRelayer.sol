@@ -15,17 +15,16 @@ interface IRelayer {
         address borrowerOperationsAddress
     ) external;
 
-    function controlError(uint256 market) external pure returns (int256);
     function parControlError(uint256 market) external pure returns (int256);
     function rateControlError(uint256 market) external pure returns (int256);
 
     function getPar() external returns (uint256);
     function getRate() external returns (uint256);
-    function getParAndRate() external returns (uint256, uint256);
+    function getRateAndPar() external returns (uint256, uint256);
 
+    function updateRateAndPar() external returns (uint256, uint256);
     function updatePar() external returns (uint256);
     function updateRate() external returns (uint256);
-    function updateParAndRate() external returns (uint256, uint256);
 
     function updateParWithMarket(uint256 marketPrice) external returns (uint256);
     function updateRateWithMarket(uint256 marketPrice) external returns (uint256);

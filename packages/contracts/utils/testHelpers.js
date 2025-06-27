@@ -324,7 +324,8 @@ class TestHelper {
    * So, it adds the gas compensation and the borrowing fee
    */
   static async getOpenTroveTotalDebt(contracts, lusdAmount) {
-    const fee = await contracts.troveManager.getBorrowingFee(lusdAmount)
+    //const fee = await contracts.troveManager.getBorrowingFee(lusdAmount)
+    const fee = this.toBN('0');
     const compositeDebt = await this.getCompositeDebt(contracts, lusdAmount)
     return compositeDebt.add(fee)
   }
@@ -340,13 +341,16 @@ class TestHelper {
 
   // Subtracts the borrowing fee
   static async getNetBorrowingAmount(contracts, debtWithFee) {
-    const borrowingRate = await contracts.troveManager.getBorrowingRateWithDecay()
-    return this.toBN(debtWithFee).mul(MoneyValues._1e18BN).div(MoneyValues._1e18BN.add(borrowingRate))
+    return debtWithFee
+    // there is no initial borrow fee anymore
+    //const borrowingRate = await contracts.troveManager.getBorrowingRateWithDecay()
+    //return this.toBN(debtWithFee).mul(MoneyValues._1e18BN).div(MoneyValues._1e18BN.add(borrowingRate))
   }
 
   // Adds the borrowing fee
   static async getAmountWithBorrowingFee(contracts, lusdAmount) {
-    const fee = await contracts.troveManager.getBorrowingFee(lusdAmount)
+    //const fee = await contracts.troveManager.getBorrowingFee(lusdAmount)
+    const fee = this.toBN('0')
     return lusdAmount.add(fee)
   }
 
@@ -621,7 +625,8 @@ class TestHelper {
   }
 
   static async getCollAndDebtFromWithdrawLUSD(contracts, account, amount) {
-    const fee = await contracts.troveManager.getBorrowingFee(amount)
+    //const fee = await contracts.troveManager.getBorrowingFee(amount)
+    const fee = this.toBN('0')
     const { entireColl, entireDebt } = await this.getEntireCollAndDebt(contracts, account)
 
     const newColl = entireColl
@@ -645,7 +650,8 @@ class TestHelper {
     // const coll = (await contracts.troveManager.Troves(account))[1]
     // const debt = (await contracts.troveManager.Troves(account))[0]
 
-    const fee = LUSDChange.gt(this.toBN('0')) ? await contracts.troveManager.getBorrowingFee(LUSDChange) : this.toBN('0')
+    //const fee = LUSDChange.gt(this.toBN('0')) ? await contracts.troveManager.getBorrowingFee(LUSDChange) : this.toBN('0')
+    const fee = this.toBN('0');
     const newColl = entireColl.add(ETHChange)
     const newDebt = entireDebt.add(LUSDChange).add(fee)
 
@@ -796,17 +802,24 @@ class TestHelper {
     if (!ICR && !extraParams.value) ICR = this.toBN(this.dec(15, 17)) // 150%
     else if (typeof ICR == 'string') ICR = this.toBN(ICR)
 
-    // totaldebt = lusdAmount + fee + gas_comp
+    // totaldebt = lusdAmount + gas_comp
     const totalDebt = await this.getOpenTroveTotalDebt(contracts, lusdAmount)
     // netDebt = totalDebt - gas_comp
-    const netDebt = await this.getActualDebtFromComposite(totalDebt, contracts)
+    //const netDebt = await this.getActualDebtFromComposite(totalDebt, contracts)
+    const netDebt = lusdAmount
 
     if (ICR) {
       const par = await contracts.relayer.par()
       const price = await contracts.priceFeedTestnet.getPrice()
-      extraParams.value = ICR.mul(totalDebt).mul(par).div(this.toBN(this.dec(1, 18)).mul(price))
-    }
 
+      extraParams.value = ICR.mul(totalDebt).mul(par).div(this.toBN(this.dec(1, 18)).mul(price))
+
+      // value coud be truncated down
+      if (extraParams.value.mul(price) < ICR.mul(totalDebt).mul(par).div(this.toBN(this.dec(1, 18)))) {
+          extraParams.value = extraParams.value.add(this.toBN('1'))
+      }
+    }
+    
     const tx = await contracts.borrowerOperations.openTrove(maxFeePercentage, lusdAmount, upperHint, lowerHint, extraParams)
 
     return {
@@ -1323,6 +1336,50 @@ class TestHelper {
     return web3.utils.sha3(signatureString).slice(0,10) +
       params.reduce((acc, p) => acc + this.formatParam(p), '')
   }
+
+  static async sendQueuedTx2(web3Contract, methodName, args = [], from, gas = 1_000_000) {
+    const txData = web3Contract.methods[methodName](...args).encodeABI();
+
+    const txHash = await ethers.provider.send("eth_sendTransaction", [{
+      from,
+      to: web3Contract.address,
+      data: txData,
+      gas
+    }]);
+
+    return txHash;
+  }
+
+
+  static async sendQueuedTx({
+    contract,
+    methodName,
+    args = [],
+    gas = 1_000_000
+  }) {
+
+    const [signer] = await ethers.getSigners();
+    const from = await signer.getAddress();
+
+    let method;
+    try {
+      method = contract.contract.methods[methodName](...args);
+    } catch (err) {
+      throw new Error(`Method '${methodName}' is not callable on contract: ${err.message}`);
+    }
+
+    const data = contract.contract.methods[methodName](...args).encodeABI();
+
+    const txHash = await ethers.provider.send("eth_sendTransaction", [{
+      from,
+      to: contract.address,
+      data,
+      gas: ethers.utils.hexStripZeros(ethers.utils.hexlify(gas)),
+    }]);
+
+    return txHash;
+  }
+
 }
 
 TestHelper.ZERO_ADDRESS = '0x' + '0'.repeat(40)

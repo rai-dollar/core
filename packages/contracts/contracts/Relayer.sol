@@ -129,14 +129,17 @@ contract Relayer is Ownable, CheckContract {
         scaledError = (error * int256(rampFactor)) / RATE_PRECISION_I;
     }
 
-    // Get par and rate, update if they are stale
-
-    function getPar() external returns (uint256) {
-        return _getPar();
+    function rateIsStale() public returns (bool) {
+        return block.timestamp - lastRateUpdateTime > MAX_RATE_STALENESS;
     }
 
-    function _getPar() internal returns (uint256) {
-        if (block.timestamp - lastParUpdateTime > MAX_PAR_STALENESS) {
+    function parIsStale() public returns (bool) {
+        return block.timestamp - lastParUpdateTime > MAX_PAR_STALENESS;
+    }
+
+    // Permissionless getters for par and rate that update if they are stale
+    function getPar() public returns (uint256) {
+        if (parIsStale()) {
             uint256 marketPrice = marketOracle.price();
             return _updatePar(marketPrice);
         }
@@ -144,13 +147,8 @@ contract Relayer is Ownable, CheckContract {
         return par;
     }
 
-    function getRate() external returns (uint256) {
-        return _getRate();
-    }
-
-    function _getRate() internal returns (uint256) {
-    // Controller outputs delta rate d, st. 1+d=per-sec rate
-        if (block.timestamp - lastRateUpdateTime > MAX_RATE_STALENESS) {
+    function getRate() public returns (uint256) {
+        if (rateIsStale()) {
             uint256 marketPrice = marketOracle.price();
             return _updateRate(marketPrice);
         }
@@ -158,14 +156,13 @@ contract Relayer is Ownable, CheckContract {
         return rate;
     }
 
-    function getParAndRate() external returns (uint256, uint256) {
-        uint256 parVal = _getPar();
-        uint256 rateVal = _getRate();
-        return (parVal, rateVal);
+    function getRateAndPar() external returns (uint256, uint256) {
+        uint256 rateVal = getRate();
+        uint256 parVal = getPar();
+        return (rateVal, parVal);
     }
 
-    // Permissionless updates of par and rate
-
+    // Permissionless updates of rate and par
     function updatePar() external returns (uint256) {
         uint256 marketPrice = marketOracle.price();
         return _updatePar(marketPrice);
@@ -200,33 +197,33 @@ contract Relayer is Ownable, CheckContract {
 
         lastRateUpdateTime = block.timestamp;
 
-        // RATEControl output is a "delta rate" so need to add 1 to get per-sec rate
+        // RateControl output is a "delta rate" so need to add 1 to get per-sec rate
         rate = RATE_PRECISION + uint256(newRate);
 
         return rate;
     }
 
-    function updateParAndRate() external returns (uint256, uint256) {
+    function updateRateAndPar() external returns (uint256, uint256) {
         uint256 marketPrice = marketOracle.price();
-        return (_updatePar(marketPrice), _updateRate(marketPrice));
+        return (_updateRate(marketPrice),  _updatePar(marketPrice));
     }
 
-    // Updates par and rate with market price, from oracle only
-    function updateParWithMarket(uint256 marketPrice) external returns (uint256) {
-        _requireCallerIsMarketOracle();
-        return _updatePar(marketPrice);
-    }
-
+    // Updates rate and par with market price, from oracle only
     function updateRateWithMarket(uint256 marketPrice) external returns (uint256) {
         _requireCallerIsMarketOracle();
         return _updateRate(marketPrice);
     }
 
-    function updateParAndRateWithMarket(uint256 marketPrice) external returns (uint256, uint256) {
+    function updateParWithMarket(uint256 marketPrice) external returns (uint256) {
         _requireCallerIsMarketOracle();
-        uint newPar = _updatePar(marketPrice);
-        uint newRate = _updateRate(marketPrice);
-        return (newPar, newRate);
+        return _updatePar(marketPrice);
+    }
+
+    function updateRateAndParWithMarket(uint256 rateMarketPrice, uint256 parMarketPrice) external returns (uint256, uint256) {
+        _requireCallerIsMarketOracle();
+        uint newRate = _updateRate(rateMarketPrice);
+        uint newPar = _updatePar(parMarketPrice);
+        return (newRate, newPar);
     }
 
     function _requireCallerIsTroveManagerOrBO() internal view {
