@@ -13,9 +13,12 @@ const th = TestHelper
 const { dec, assertRevert, toBN } = th
 
 const hre = require("hardhat");
+// test with:
+// GAS_PRICE=70832172907 npx hardhat test test/PriceFeedTest/MainnetPriceFeedTest.js --config hardhat.config.mainnet-fork.js
 
 contract('PriceFeedFork', async accounts => {
-
+    const [owner, alice, bob, carol] = accounts;
+    const [bountyAddress, lpRewardsAddress, multisig] = accounts.slice(997, 1000)
     // oracles used in the price feeds
     const chainlinkOracles = {
         stEthUsd: "0xCfE54B5cD566aB89272946F602D76Ea879CAb4a8",
@@ -79,31 +82,42 @@ contract('PriceFeedFork', async accounts => {
     console.log("BEFORE")
 
     before(async () => {
-        console.log("SETTING UP TEST", mainnetForkConfig.url)
-        // const stethMarketConfig = ethers.utils.defaultAbiCoder.encode(oracleConfigType, stethMarketOracleConfig)
-        // const ethUsdConfig = ethers.utils.defaultAbiCoder.encode(oracleConfigType, ethUsdOracleConfig)
-        // select mainnet fork
-        await hre.network.provider.send("hardhat_reset", [
-            {
-                forking: {
-                    jsonRpcUrl: mainnetForkConfig.url,
-                    // blockNumber: mainnetForkConfig.blockNumber
-                }
-            }
-        ])
         const chainId = await hre.network.provider.send("eth_chainId");
-        console.log("Chain ID:", parseInt(chainId, 16));
+        console.log("Chain ID:", chainId);
+        if (chainId !== "0x1") {
+            // Only run this once
+            isNetworkSetup = true;
+            
+            // Reset to mainnet fork
+            await hre.network.provider.send("hardhat_reset", [
+                {
+                    forking: {
+                        jsonRpcUrl: mainnetForkConfig.url,
+                        // blockNumber: mainnetForkConfig.blockNumber
+                    }
+                }
+            ]
+        );
+      }
+
+        
+        // expect(chainId).to.equal("0x1");
+        
+
+        const deployerWallet = (await ethers.getSigners())[0];
+        const deployerWalletAddress = deployerWallet.address;
 
         console.log("Deploying WSTETHPriceFeed...");
+        const WSTETHPriceFeedFactory = await ethers.getContractFactory("WSTETHPriceFeed", deployerWallet);
         // deploy price feeds
-        wstEthPriceFeed = await WSTETHPriceFeed.new(
+        wstEthPriceFeed = await WSTETHPriceFeedFactory.deploy(
             stethMarketOracleConfig,
             ethUsdOracleConfig,
             tokens.wsteth,
             tokens.wsteth,
             deviationThreshold,
-            {from: accounts[0]}
         )
+        console.log("WSTETHPriceFeed deployed at:", wstEthPriceFeed.address);
     })
 
     describe("WSTETHPriceFeed", () => {

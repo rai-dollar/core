@@ -11,7 +11,7 @@ interface IWSTEthRateProvider {
 }
 
 contract WSTETHPriceFeed is CompositePriceFeedBase {
-    Response public lastGoodWstEthUsdResponse;
+    uint256 public lastGoodWstEthUsdPrice;
 
     event WstEthUsdResponse(uint256 price, uint256 lastUpdated);
     
@@ -25,7 +25,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
 
         if (!stethPerWstethResponse.success) {
             _setCompositePriceSource(PriceSource.lastGoodResponse);
-            return lastGoodWstEthUsdResponse.price;
+            return lastGoodWstEthUsdPrice;
         }
 
         // Otherwise, use the primary price calculation:
@@ -36,7 +36,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             wstEthUsdResponse = _getRedemptionPrice(stEthUsdPriceResponse, ethUsdPriceResponse, stethPerWstethResponse);
         } else {
             wstEthUsdResponse.price = stEthUsdPriceResponse.price * stethPerWstethResponse.price / 1e18;
-            wstEthUsdResponse.success = stEthUsdPriceResponse.price != 0 && stethPerWstethResponse.price != 0;
+            wstEthUsdResponse.success = stEthUsdPriceResponse.success && stethPerWstethResponse.success;
             wstEthUsdResponse.lastUpdated = block.timestamp;
         }
 
@@ -44,7 +44,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             _saveLastGoodWstEthUsdResponse(wstEthUsdResponse);
         } else {
             _setCompositePriceSource(PriceSource.lastGoodResponse);
-            wstEthUsdResponse = lastGoodWstEthUsdResponse;  
+            wstEthUsdResponse = lastGoodWstEthUsdPrice;  
         }
 
         return wstEthUsdResponse.price;

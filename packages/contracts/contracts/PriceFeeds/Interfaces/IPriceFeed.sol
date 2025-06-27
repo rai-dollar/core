@@ -6,7 +6,7 @@ interface IPriceFeed {
     enum PriceSource {
         primaryOracle, 
         fallbackOracle,
-        lastGoodResponse
+        lastGoodPrice
     }
 
     struct Response {
@@ -27,11 +27,6 @@ interface IPriceFeed {
         uint256 fallbackStalenessThreshold;
     }
 
-    // --- Events ---
-    error NoGoodResponseFromAnyOracle();
-    error InsufficientGasForExternalCall();
-    error Shutdown();
-   
     // --- Function ---
-    function fetchPrice(bool _isRedemption) external returns (uint);
+    function fetchPrice(bool _isRedemption) external returns (uint256);
 }

@@ -8,14 +8,6 @@ import {IERC20} from "./Interfaces/IERC20.sol";
 import {Constants as C} from "./Common/Constants.sol";
 import "hardhat/console.sol";
 
-/*
-* PriceFeed for mainnet deployment, to be connected to Chainlink's live ETH:USD aggregator reference 
-* contract, and a wrapper contract TellorCaller, which connects to TellorMaster contract.
-*
-* The PriceFeed uses Chainlink as primary oracle, and Tellor as fallback. It contains logic for
-* switching oracles based on oracle failures, timeouts, and conditions for returning to the primary
-* Chainlink oracle.
-*/
 abstract contract PriceFeedBase is IPriceFeed {
     using LiquityMath for uint256;
     
@@ -29,13 +21,13 @@ abstract contract PriceFeedBase is IPriceFeed {
     uint256 public deviationThreshold;
 
     // The last good price returned by any oracle
-    Response public lastGoodResponse;
+    uint256 public lastGoodMarketPrice;
     
     // Where the price feed is getting its price: primaryOracle, fallbackOracle, or shutdown
     PriceSource public marketPriceSource;
     
     event MarketPriceSourceChanged(PriceSource marketPriceSource);
-    event LastGoodMarketResponseUpdated(uint256 price, uint256 lastUpdated);
+    event LastGoodMarketPriceUpdated(uint256 price, uint256 lastUpdated);
     event ShutdownInitiated(string reason, uint256 blockNumber);
     
     constructor(OracleConfig memory _marketOracleConfig, address _token, uint256 _deviationThreshold) {
@@ -60,10 +52,10 @@ abstract contract PriceFeedBase is IPriceFeed {
     /// @dev if the primary oracle is good, it will return the price from the primary oracle
     /// @dev if the primary oracle is bad, it will return the price from the fallback oracle
     /// @dev if both oracles are bad, it will return the last good price and enter a shutdown state
-    function _fetchMarketOraclePrice() internal returns (Response memory response){
+    function _fetchMarketOraclePrice() internal returns (uint256, bool){
         // if the price feed is in a shutdown state, return the last good price
-        if (marketPriceSource == PriceSource.lastGoodResponse) {
-            return lastGoodResponse;
+        if (marketPriceSource == PriceSource.lastGoodPrice) {
+            return (lastGoodMarketPrice, true);
         }
 
         // if the price feed is using the primary oracle
@@ -76,7 +68,7 @@ abstract contract PriceFeedBase is IPriceFeed {
                     _setMarketPriceSource(PriceSource.primaryOracle);
                     _storeResponse(primaryResponse);
                     
-                    return primaryResponse;
+                    return (primaryResponse.price, primaryResponse.success);
                 } else if (!isGoodPrimaryResponse && fallbackOracle.oracle != address(0)) {
                 // if primary is not good, get fallback response
                 Response memory fallbackResponse = _fetchPriceFromFallbackOracle();
@@ -85,16 +77,17 @@ abstract contract PriceFeedBase is IPriceFeed {
                     if (isGoodFallbackResponse) {
                         _setMarketPriceSource(PriceSource.fallbackOracle);
                         _storeResponse(fallbackResponse);
-                        return fallbackResponse;
+                        return (fallbackResponse.price, fallbackResponse.success);
                     } else {
                          // if both oracles are bad, shutdown the price feed and revert to last good price
-                        _setMarketPriceSource(PriceSource.lastGoodResponse);
-                        return lastGoodResponse;
+                        _setMarketPriceSource(PriceSource.lastGoodPrice);
+                        // market oracle has failed so success is false
+                        return (lastGoodMarketPrice, false);
                     }
                 } else {
                      // if the fallback oracle is not set, shutdown the price feed and revert to last good price
-                     _setMarketPriceSource(PriceSource.lastGoodResponse);
-                     return lastGoodResponse;
+                     _setMarketPriceSource(PriceSource.lastGoodPrice);
+                     return (lastGoodMarketPrice, false);
                 }
         }
         
@@ -115,20 +108,20 @@ abstract contract PriceFeedBase is IPriceFeed {
                     // if the primary oracle is good and within the deviation threshold, set the market price source to the primary oracle and return the primary response
                     _setMarketPriceSource(PriceSource.primaryOracle);
                     _storeResponse(primaryResponse);
-                    return primaryResponse;
+                    return (primaryResponse.price, primaryResponse.success);
                 } else if (isGoodFallbackResponse && !safeToUsePrimary) {
                     // if the primary oracle is not safe to use, return fallback response
                     _storeResponse(fallbackResponse);
-                    return fallbackResponse;            
+                    return (fallbackResponse.price, fallbackResponse.success);            
                 } else {
                     // if primary and fallback are both bad, shutdown the price feed and revert to last good price
-                    _setMarketPriceSource(PriceSource.lastGoodResponse);
-                    return lastGoodResponse;
+                    _setMarketPriceSource(PriceSource.lastGoodPrice);
+                    return (lastGoodMarketPrice, false);
                 }
         }
-        
+
         // oracle not using primary or fallback oracle, in shutdown state, return last good response
-        return lastGoodResponse;
+        return (lastGoodMarketPrice, false);
     }
     
     // --- Overrides ---
@@ -155,14 +148,14 @@ abstract contract PriceFeedBase is IPriceFeed {
             emit MarketPriceSourceChanged(marketPriceSource);
         }
 
-        if (_marketPriceSource == PriceSource.lastGoodResponse) {
+        if (_marketPriceSource == PriceSource.lastGoodPrice) {
             emit ShutdownInitiated("Market Oracle Failure", block.number);
         }
     }
 
     function _storeResponse(Response memory _response) internal {
-        lastGoodResponse = _response;
-        emit LastGoodMarketResponseUpdated(_response.price, _response.lastUpdated);
+        lastGoodMarketPrice = _response.price;
+        emit LastGoodMarketPriceUpdated(_response.price, _response.lastUpdated);
     }
 
         // deviation threshold is per collateral type

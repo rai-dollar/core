@@ -14,7 +14,7 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
     address public rateProvider;
 
     //last good response from the primary or fallback eth/usd oracle
-    Response public lastGoodEthUsdResponse;
+    uint256 public lastGoodEthUsdPrice;
 
     //where the eth/usd price is coming from: primaryOracle, fallbackOracle, or lastGoodResponse
     PriceSource public compositePriceSource;
@@ -45,10 +45,10 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
     // if the price is not available, it will return the last good price
     // if the price is not available from the primary or fallback oracle, it will return the last good price
 
-    function _fetchEthUsdPrice() internal returns (Response memory _ethUsdPriceResponse) {
+    function _fetchEthUsdPrice() internal returns (uint256, bool) {
         // if oracle is in shutdown state, return last good price
         if (compositePriceSource == PriceSource.lastGoodResponse) {
-            return lastGoodEthUsdResponse;
+            return lastGoodEthUsdPrice;
         }
 
         if (compositePriceSource == PriceSource.primaryOracle) {
@@ -58,7 +58,7 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
     
                 if (primaryEthUsdPriceSuccess) {
                 _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
-                return primaryEthUsdPriceResponse;
+                return (primaryEthUsdPriceResponse.price, primaryEthUsdPriceResponse.success);
 
                 } else if (!primaryEthUsdPriceSuccess && ethUsdOracleFallback.oracle != address(0)) {
                     Response memory fallbackEthUsdPriceResponse = _fetchFallbackEthUsdPrice();
@@ -67,15 +67,15 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
                         if (fallbackEthUsdPriceSuccess) {
                             _setCompositePriceSource(PriceSource.fallbackOracle);
                             _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
-                            return fallbackEthUsdPriceResponse;
+                            return (fallbackEthUsdPriceResponse.price, fallbackEthUsdPriceResponse.success);
                         } else {
                             _setCompositePriceSource(PriceSource.lastGoodResponse);
-                            return lastGoodEthUsdResponse;
+                            return (lastGoodEthUsdPrice, false);
                         }
                 } else {
                     // if the fallback oracle is not set, shutdown the price feed and revert to last good price
                     _setCompositePriceSource(PriceSource.lastGoodResponse);
-                    return lastGoodEthUsdResponse;
+                    return (lastGoodEthUsdPrice, false);
                 }
         }
         
@@ -93,15 +93,15 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
                 if (safeToUseCompositePrimary) {
                     _setCompositePriceSource(PriceSource.primaryOracle);
                     _saveLastGoodEthUsdResponse(primaryEthUsdPriceResponse);
-                    return primaryEthUsdPriceResponse;
+                    return (primaryEthUsdPriceResponse.price, primaryEthUsdPriceResponse.success);
                 // if the primary oracle is not good, return fallback response
                 } else if (fallbackEthUsdPriceSuccess && !safeToUseCompositePrimary) {
                     _saveLastGoodEthUsdResponse(fallbackEthUsdPriceResponse);
-                    return fallbackEthUsdPriceResponse;
+                    return (fallbackEthUsdPriceResponse.price, fallbackEthUsdPriceResponse.success);
                 // if both oracles are bad, shutdown the price feed and revert to last good price
                 } else {
                     _setCompositePriceSource(PriceSource.lastGoodResponse);
-                    return lastGoodEthUsdResponse;
+                    return (lastGoodEthUsdPrice, false);
                 }
         }
     }
@@ -115,7 +115,6 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
     //override with library that fetches eth/usd from the fallback oracle
     function _fetchFallbackEthUsdPrice() internal virtual view returns (Response memory);
 
-    // override with library that fetches the canonical rate
     // Returns the LST exchange rate and a bool indicating whether the exchange rate failed to return a valid rate.
     // Implementation depends on the specific priceSource
     function _fetchCanonicalRate() internal virtual view returns (Response memory);

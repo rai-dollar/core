@@ -51,6 +51,25 @@ module.exports = {
                     }
                 }
             },
+            {
+        version: "0.8.24",
+        settings: {
+          evmVersion: "paris",
+          optimizer: {
+            enabled: true,
+            runs: 100
+          }
+        }
+      },
+      {
+        version: "0.8.30",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 100
+          }
+        }
+      }
         ]
     },
     networks: {
