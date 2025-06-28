@@ -17,7 +17,14 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
     event WstEthUsdPriceSourceChanged(PriceSource wethUsdPriceSource, uint256 timestamp);
 
     PriceSource public wethUsdPriceSource;
-   constructor(OracleConfig memory _marketOracleConfig, OracleConfig memory _ethUsdOracleConfig, address _token, address _rateProvider, uint256 _deviationThreshold) CompositePriceFeedBase(_marketOracleConfig, _ethUsdOracleConfig, _token, _rateProvider, _deviationThreshold) {
+   constructor(
+    OracleConfig memory _marketOracleConfig, 
+    OracleConfig memory _ethUsdOracleConfig, 
+    address _token, 
+    address _rateProvider, 
+    uint256 _deviationThreshold,
+    uint256 _wethUsdStalenessThreshold
+    ) CompositePriceFeedBase(_marketOracleConfig, _ethUsdOracleConfig, _token, _rateProvider, _deviationThreshold) {
     // we are only using one stEth/usd oracle
     require(_marketPrimaryIsSet(), "Primary market oracle must be set");
     // there should be a primary and fallback eth/usd oracle
@@ -60,19 +67,19 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             } else if (_isRedemption && !withinDeviationThreshold) {
                 // if not within the deviation threshold, use eth/usd price for calculation
                 wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
-                wstEthUsdResponse.success = ethUsdPriceResponse.success && stethPerWstethResponse.success;
+                wstEthUsdResponse.success = true;
                 wstEthUsdResponse.lastUpdated = stethPerWstethResponse.lastUpdated;
 
             } else if (!_isRedemption && withinDeviationThreshold) {
                 // if not a redemption and within the deviation threshold, use steth/usd price for calculation
                 wstEthUsdResponse.price = _getRedemptionPrice(stEthUsdPriceResponse.price, stethPerWstethResponse.price);
-                wstEthUsdResponse.success = stEthUsdPriceResponse.success && stethPerWstethResponse.success;
+                wstEthUsdResponse.success = true;
                 wstEthUsdResponse.lastUpdated = stethPerWstethResponse.lastUpdated;
-
             } else {
                 // if not redemption and not within the deviation threshold, use eth/usd price for calculation
-                wstEthUsdResponse.price = ethUsdPriceResponse.price * stethPerWstethResponse.price / 1e18;
-                wstEthUsdResponse.success = ethUsdPriceResponse.success && stethPerWstethResponse.success;
+                wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
+                wstEthUsdResponse.success = true;
+                wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.lastUpdated;
             }
             // if the wsteth/usd price is good, save it if not, shutdown and return last good response
             if (isGoodResponse(wstEthUsdResponse, ethUsdStalenessThreshold)) {
