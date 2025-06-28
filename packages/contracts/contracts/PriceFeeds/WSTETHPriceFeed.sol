@@ -56,7 +56,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
 
         Response memory wstEthUsdResponse;
       
-        // if market oracle and composite oracle are good, use the composite oracle price 
+        // if market oracle and composite oracle are good, calculate the wsteth/usd price 
         if (stEthUsdIsGood && ethUsdIsGood) {
             bool withinDeviationThreshold = _withinDeviationThreshold(stEthUsdPriceResponse.price, ethUsdPriceResponse.price, deviationThreshold);
             // if redemption, check if the stEthUsdPrice and ethUsdPrice are within the deviation threshold
@@ -87,26 +87,23 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             } else {
                 _setWethUsdPriceSource(PriceSource.lastGoodResponse);
                 wstEthUsdResponse = lastGoodWstEthUsdResponse;  
+                wstEthUsdResponse.success = false;
             }
+        } else if (!stEthUsdIsGood && ethUsdIsGood) {
+            // if market oracle is not good and composite oracle is good, use the eth/usd price and shut down
+            wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
+            wstEthUsdResponse.success = false;
+            wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.timestamp;
+
+            _saveLastGoodWstEthUsdResponse(wstEthUsdResponse);
+
+            _setWethUsdPriceSource(PriceSource.lastGoodResponse);
         } else {
+            //return last good response and shut down everything
             _setWethUsdPriceSource(PriceSource.lastGoodResponse);
             wstEthUsdResponse = lastGoodWstEthUsdResponse;  
+            wstEthUsdResponse.success = false;
         }
-
-        // @bkellerman leaving this commented, we could add this or something like it if we wanted to have some fallback logic
-        // in case of the failure of the StethUsd oracle (which is not entirely neccessary)
-        // and assume eth and steth should always be pegged
-
-        // } else if (!stEthUsdIsGood && ethUsdIsGood) {
-        //     // if market oracle is not good and composite oracle is good, use the composite oracle price
-        //     wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
-        //     wstEthUsdResponse.success = false;
-        //     wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.timestamp;
-        // } else {
-        //     //return last good response and shut down everything
-        //     _setWethUsdPriceSource(PriceSource.lastGoodResponse);
-        //     wstEthUsdResponse = lastGoodWstEthUsdResponse;      
-        // }
 
         return wstEthUsdResponse.price;
     }
@@ -141,24 +138,27 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             Response memory ethUsdPriceResponse = _fetchPrimaryCompositeOraclePrice();
 
             // if the primary ethUsdPrice is good, save it and return it
-        if (isGoodResponse(ethUsdPriceResponse, primaryCompositeOracle.stalenessThreshold)) {
-            _storeLastGoodCompositeResponse(ethUsdPriceResponse);
-            _ethUsdPriceResponse = ethUsdPriceResponse;
+            if (isGoodResponse(ethUsdPriceResponse, primaryCompositeOracle.stalenessThreshold)) {
+                // TODO: probably unnecessary to store last good response for composite and market price sources.
+                // unless we end up having a shutdown recovery mechanism
+                _storeLastGoodCompositeResponse(ethUsdPriceResponse);
+                _ethUsdPriceResponse = ethUsdPriceResponse;
 
-        } else {
-            // if the ethUsdPrice is not good, check if the fallback oracle is good
-            Response memory ethUsdPriceResponseFallback = _fetchFallbackCompositeOraclePrice();
-
-            // if the fallback ethUsdPrice is good, save it, set price source to fallback and return it
-            if (isGoodResponse(ethUsdPriceResponseFallback, fallbackCompositeOracle.stalenessThreshold)) {
-                _setCompositePriceSource(PriceSource.fallbackOracle);
-                _storeLastGoodCompositeResponse(ethUsdPriceResponseFallback);
-                _ethUsdPriceResponse = ethUsdPriceResponseFallback;
-                // if the fallback ethUsdPrice is not good, set price source to last good and return last good response
             } else {
-                _setCompositePriceSource(PriceSource.lastGoodResponse);
-                _ethUsdPriceResponse = lastGoodCompositeResponse;
-                _ethUsdPriceResponse.success = false;
+                // if the ethUsdPrice is not good, check if the fallback oracle is good
+                Response memory ethUsdPriceResponseFallback = _fetchFallbackCompositeOraclePrice();
+
+                // if the fallback ethUsdPrice is good, save it, set price source to fallback and return it
+                if (isGoodResponse(ethUsdPriceResponseFallback, fallbackCompositeOracle.stalenessThreshold)) {
+                    _setCompositePriceSource(PriceSource.fallbackOracle);
+                    // TODO: see note line 147
+                    _storeLastGoodCompositeResponse(ethUsdPriceResponseFallback);
+                    _ethUsdPriceResponse = ethUsdPriceResponseFallback;
+                    // if the fallback ethUsdPrice is not good, set price source to last good and return last good response
+                } else {
+                    _setCompositePriceSource(PriceSource.lastGoodResponse);
+                    _ethUsdPriceResponse = lastGoodCompositeResponse;
+                    _ethUsdPriceResponse.success = false;
                 }
             }
         } 
@@ -168,6 +168,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
            bool fallbackIsGood = isGoodResponse(ethUsdPriceResponseFallback, fallbackCompositeOracle.stalenessThreshold);
 
            Response memory ethUsdPriceResponse = _fetchPrimaryCompositeOraclePrice();
+
            bool primaryIsGood = isGoodResponse(ethUsdPriceResponse, primaryCompositeOracle.stalenessThreshold) && 
            _withinDeviationThreshold(ethUsdPriceResponse.price, ethUsdPriceResponseFallback.price, deviationThreshold);
 
@@ -178,11 +179,12 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
 
                 // return the max of the two responses
                 _ethUsdPriceResponse = ethUsdPriceResponse.price > ethUsdPriceResponseFallback.price ? ethUsdPriceResponse : ethUsdPriceResponseFallback;
-
+                    // TODO: see note line 147
                 _storeLastGoodCompositeResponse(_ethUsdPriceResponse);
 
            } else if (!primaryIsGood && fallbackIsGood) {
                 // if primary is not good and fallback is good, return fallback response
+                // TODO: see note line 147
                 _storeLastGoodCompositeResponse(ethUsdPriceResponseFallback);
                 _ethUsdPriceResponse = ethUsdPriceResponseFallback;
            } else {
