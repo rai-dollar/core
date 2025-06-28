@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.24;
+
+import {CompositePriceFeedBase} from "./CompositePriceFeedBase.sol";
+import {Constants as C} from "./Common/Constants.sol";
+import {LiquityMath} from "./Common/LiquityMath.sol";
+
+//import parsers here
+
+///@notice this is a template for a new composite price feed
+contract TemplateCompositePriceFeed is CompositePriceFeedBase {
+    
+    constructor(address _primaryOracle, address _fallbackOracle, address _token, address _rateProvider, address _ethUsdOracle) CompositePriceFeedBase(_primaryOracle, _fallbackOracle, _token, _rateProvider, _ethUsdOracle) {}
+
+    /// @notice must override the following function with oracle / collateral specific logic
+
+    // --- Oracle Overrides ---
+
+    // external function that fetches the price from the primary or fallback oracle
+    function fetchPrice(bool _isRedemption) external override returns (uint256 price, bool success);
+
+    // primary oracle response
+    function _fetchPriceFromPrimaryOracle() internal override returns (Response memory);
+
+    // fallback oracle response
+    function _fetchPriceFromFallbackOracle() internal override returns (Response memory);
+
+    /// @notice must override with library of the selected oracle provider
+    //override with library that fetches eth/usd from the selected oracle
+    function _fetchPrimaryEthUsdPrice() internal virtual view returns (Response memory);
+
+    //override with library that fetches eth/usd from the fallback oracle
+    function _fetchFallbackEthUsdPrice() internal virtual view returns (Response memory);
+
+    // Returns the LST exchange rate and a bool indicating whether the exchange rate failed to return a valid rate.
+    // Implementation depends on the specific priceSource
+    function _fetchCanonicalRate() internal virtual view returns (Response memory);
+      
+}
