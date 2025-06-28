@@ -26,19 +26,15 @@ contract TemplateCompositePriceFeed is CompositePriceFeedBase {
     // fallback oracle response
     function _fetchPriceFromFallbackOracle() internal override returns (Response memory);
 
-    // eth usd price response
-    function _fetchEthUsdPrice() internal view returns (Response memory);
+    /// @notice must override with library of the selected oracle provider
+    //override with library that fetches eth/usd from the selected oracle
+    function _fetchPrimaryEthUsdPrice() internal virtual view returns (Response memory);
 
-    // canonical conversion rate for lsts
-    function _fetchCanonicalRate() internal view returns (Response memory);
-    
+    //override with library that fetches eth/usd from the fallback oracle
+    function _fetchFallbackEthUsdPrice() internal virtual view returns (Response memory);
 
-    // --- Threshold Overrides ---
-    function _primaryStalenessThreshold() internal pure override returns (uint256);
-
-    function _fallbackStalenessThreshold() internal pure override returns (uint256);
-
-    function _deviationThreshold() internal pure override returns (uint256);
-
-    
+    // Returns the LST exchange rate and a bool indicating whether the exchange rate failed to return a valid rate.
+    // Implementation depends on the specific priceSource
+    function _fetchCanonicalRate() internal virtual view returns (Response memory);
+      
 }

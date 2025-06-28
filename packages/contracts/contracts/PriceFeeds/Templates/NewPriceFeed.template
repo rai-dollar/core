@@ -25,10 +25,5 @@ contract TemplatePriceFeed is PriceFeedBase {
 
     // fallback oracle response
     function _fetchPriceFromFallbackOracle() internal override returns (Response memory);
-
-    // --- Threshold Overrides ---
-    function _primaryStalenessThreshold() internal pure override returns (uint256);
-
-    function _fallbackStalenessThreshold() internal pure override returns (uint256);
     
 }

@@ -29,6 +29,7 @@ library ChainlinkParser {
         uint8 decimals = _getOracleDecimals(chainlinkOracle);
 
         uint256 gasBefore = gasleft();
+        
         try chainlinkOracle.latestRoundData() returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound) {
             chainlinkResponse.roundId = roundId;
             chainlinkResponse.answer = answer;
