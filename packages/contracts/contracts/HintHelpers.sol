@@ -7,6 +7,7 @@ import "./Interfaces/ISortedTroves.sol";
 import "./Dependencies/LiquityBase.sol";
 import "./Dependencies/Ownable.sol";
 import "./Dependencies/CheckContract.sol";
+import "./Dependencies/console.sol";
 
 contract HintHelpers is LiquityBase, Ownable, CheckContract {
     string constant public NAME = "HintHelpers";
@@ -88,8 +89,13 @@ contract HintHelpers is LiquityBase, Ownable, CheckContract {
         }
 
         while (currentTroveuser != address(0) && remainingLUSD > 0 && _maxIterations-- > 0) {
-            uint netLUSDDebt = _getNetDebt(troveManager.getTroveDebt(currentTroveuser))
-                .add(troveManager.getPendingLUSDDebtReward(currentTroveuser));
+            // actual
+            //uint netLUSDDebt = _getNetDebt(troveManager.getTroveDebt(currentTroveuser))
+            //    .add(troveManager.getPendingLUSDDebtReward(currentTroveuser));
+
+            // norm
+            uint netLUSDDebt = _getNetDebt(troveManager.getTroveActualDebt(currentTroveuser))
+                .add(troveManager.getPendingActualLUSDDebtReward(currentTroveuser));
 
             if (netLUSDDebt > remainingLUSD) {
                 if (netLUSDDebt > MIN_NET_DEBT) {

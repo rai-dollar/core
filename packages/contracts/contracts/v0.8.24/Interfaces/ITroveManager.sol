@@ -93,6 +93,7 @@ interface ITroveManager is ILiquityBase {
     function getPendingETHReward(address _borrower) external view returns (uint);
 
     function getPendingLUSDDebtReward(address _borrower) external view returns (uint);
+    function getPendingActualLUSDDebtReward(address _borrower) external view returns (uint);
 
      function hasPendingRewards(address _borrower) external view returns (bool);
 
@@ -142,5 +143,4 @@ interface ITroveManager is ILiquityBase {
 
     function getTCR(uint _price) external view returns (uint);
 
-    function checkRecoveryMode(uint _price) external view returns (bool);
 }

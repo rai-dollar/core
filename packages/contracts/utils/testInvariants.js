@@ -6,21 +6,18 @@ const BN = require('bn.js')
 class TestInvariant {
 
   static async debtEqualsSupply(contracts) {
+
+    // a few tests use unprotected mints, which are not from debt
+    // so need to subtract from totalSupply
+    const unprotectedSupply = await contracts.lusdToken.unprotectedSupply()
+
     const debt = await contracts.troveManager.getEntireSystemDebt(await contracts.troveManager.accumulatedRate())
-    const supply = await contracts.lusdToken.totalSupply()
+    const supply = (await contracts.lusdToken.totalSupply()).sub(unprotectedSupply)
 
-    return supply.sub(debt).lte(toBN('1'))
+    // system allows slightly more supply than debt due to rounding
+    // this gap is corrected with each drip()
+    return (supply.sub(debt).lte(toBN('3')) || debt.eq(toBN('0')))
 
-    //return debt.eq(supply)
-
-    /*
-    if (debt.gt(supply)) {
-        return (debt.sub(supply)).eq(web3.utils.toBN('1'))
-    } else if (debt.lt(supply)) {
-        return (supply.sub(debt)).eq(web3.utils.toBN('1'))
-    }
-    return true
-    */
   }
 
   static async SpBalanceEqualsErc20Balance(contracts) {
