@@ -6,6 +6,8 @@ import {CompositePriceFeedBase} from "./CompositePriceFeedBase.sol";
 import {ChainlinkParser} from "./Parsers/ChainlinkParser.sol";
 import {Api3Parser} from "./Parsers/Api3Parser.sol";
 
+import "hardhat/console.sol";
+
 interface IWSTEthRateProvider {
     function stEthPerToken() external view returns (uint256);
 }
@@ -41,7 +43,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
         Response memory stEthUsdPriceResponse = _fetchMarketOracleStEthUsdPrice();
         Response memory ethUsdPriceResponse = _fetchEthUsdPrice();
         Response memory stethPerWstethResponse = _fetchCanonicalstEthPerWstethRate();
-        
+
         uint256 ethUsdStalenessThreshold = compositePriceSource == PriceSource.primaryOracle ? primaryCompositeOracle.stalenessThreshold : fallbackCompositeOracle.stalenessThreshold;
         bool ethUsdIsGood = isGoodResponse(ethUsdPriceResponse, ethUsdStalenessThreshold);
 
@@ -61,7 +63,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             bool withinDeviationThreshold = _withinDeviationThreshold(stEthUsdPriceResponse.price, ethUsdPriceResponse.price, deviationThreshold);
             // if redemption, check if the stEthUsdPrice and ethUsdPrice are within the deviation threshold
             if (_isRedemption && withinDeviationThreshold) {
-                // if steth/usd and eth/usd are within the deviation threshold, use the redemption price
+                // if steth/usd and eth/usd are within the deviation threshold, use the redemption max price
                     wstEthUsdResponse = _getMaxRedemptionPrice(stEthUsdPriceResponse, ethUsdPriceResponse, stethPerWstethResponse);
                 
             } else if (_isRedemption && !withinDeviationThreshold) {
@@ -81,6 +83,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
                 wstEthUsdResponse.success = true;
                 wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.lastUpdated;
             }
+
             // if the wsteth/usd price is good, save it if not, shutdown and return last good response
             if (isGoodResponse(wstEthUsdResponse, ethUsdStalenessThreshold)) {
                 _saveLastGoodWstEthUsdResponse(wstEthUsdResponse);
@@ -93,7 +96,7 @@ function fetchPrice(bool _isRedemption) external override returns (uint256 price
             // if market oracle is not good and composite oracle is good, use the eth/usd price and shut down
             wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
             wstEthUsdResponse.success = false;
-            wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.timestamp;
+            wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.lastUpdated;
 
             _saveLastGoodWstEthUsdResponse(wstEthUsdResponse);
 
