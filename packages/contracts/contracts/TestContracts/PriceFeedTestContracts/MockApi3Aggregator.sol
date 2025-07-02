@@ -7,13 +7,14 @@ import "../../PriceFeeds/Interfaces/IApi3ReaderProxy.sol";
 contract MockApi3Aggregator is IApi3ReaderProxy {
     
     // storage variables to hold the mock data
-    uint8 private decimalsVal = 18;
-    int224 private price;
-    uint32 private updateTime;
+    uint8 public decimalsVal = 18;
+    int224 public price;
+    uint32 public updateTime;
 
     bool latestRevert;
     bool decimalsRevert;
 
+    event PriceEmitted(int224 price, uint32 updateTime);
     // --- Functions ---
 
     function setDecimals(uint8 _decimals) external {
@@ -36,6 +37,10 @@ contract MockApi3Aggregator is IApi3ReaderProxy {
         if (decimalsRevert) {require(1== 0, "decimals reverted");}
 
         return decimalsVal;
+    }
+
+    function emitPrice() external {
+        emit PriceEmitted(price, updateTime);
     }
 
     function read()

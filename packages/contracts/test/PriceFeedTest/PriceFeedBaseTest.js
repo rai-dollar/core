@@ -46,10 +46,11 @@ contract('PriceFeedUnitTests', async accounts => {
         blockTimestamp = await hre.ethers.provider.getBlock("latest").then(block => block.timestamp);
         const deployerWallet = (await ethers.getSigners())[0];
 
-        const MockChainlinkAggregator = await ethers.getContractFactory("MockAggregator", deployerWallet);
+        const MockChainlinkAggregator = await ethers.getContractFactory("MockChainlinkAggregator", deployerWallet);
+        const MockApi3Aggregator = await ethers.getContractFactory("MockApi3Aggregator", deployerWallet);
 
         mockMarketAggregator = await MockChainlinkAggregator.deploy();
-        mockFallbackAggregator = await MockChainlinkAggregator.deploy();
+        mockFallbackAggregator = await MockApi3Aggregator.deploy();
 
         const MockWstETH = await ethers.getContractFactory("MockWstETH", deployerWallet);
         mockWstETH = await MockWstETH.deploy();
@@ -91,6 +92,17 @@ contract('PriceFeedUnitTests', async accounts => {
         const price = receipt.events.filter(event => event.event === "LastGoodMarketResponseUpdated")[0].args.price;
         return parseFloat(hre.ethers.utils.formatEther(price));
     }
+
+    function getLastUpdatedFromReceipt(receipt) {
+        const lastUpdated = receipt.events.filter(event => event.event === "LastGoodMarketResponseUpdated")[0].args.lastUpdated;
+        return lastUpdated;
+    }
+
+    function getPriceEmittedFromReceipt(receipt) {
+        const price = receipt.events.filter(event => event.event === "PriceEmitted")[0].args.price;
+        return parseFloat(hre.ethers.utils.formatEther(price));
+    }
+
     describe("PriceFeedBase", () => {
 
         it("should get the primary oracle price", async () => {
@@ -101,10 +113,11 @@ contract('PriceFeedUnitTests', async accounts => {
         });
         
         it("should use fallback oracle if primary oracle is stale", async () => {
+            mockMarketAggregator.setUpdateTime(blockTimestamp - 1000);
             const tx = await priceFeedBase.fetchPrice(false);
             const receipt = await tx.wait();
             const price = getPriceFromReceipt(receipt);
-            expect(parseFloat(price)).to.equal(1000);
+            expect(parseFloat(price)).to.equal(2000);
         });
 
     })

@@ -31,6 +31,7 @@ contract PriceFeedBaseTester is PriceFeedBase {
         } else {
             _setMarketPriceSource(PriceSource.fallbackOracle);
             Response memory fallbackResponse = _fetchFallbackMarketOraclePrice();
+            
             bool fallbackIsGood = isGoodResponse(fallbackResponse, fallbackMarketOracle.stalenessThreshold);
             if (fallbackIsGood) {
                 _storeLastGoodMarketResponse(fallbackResponse);
