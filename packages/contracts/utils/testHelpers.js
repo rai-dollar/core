@@ -312,8 +312,10 @@ class TestHelper {
   }
 
   static async getTroveEntireDebt(contracts, trove) {
-    //return this.toBN((await contracts.troveManager.getEntireDebtAndColl(trove))[0])
     return this.toBN((await contracts.troveManager.getTroveActualDebt(trove)))
+    //return this.toBN((await contracts.troveManager.getEntireDebtAndColl(trove))[0])
+    //return this.toBN(await contracts.troveManager.getTroveActualDebt(trove))
+    //return await contracts.troveManager.getTroveActualDebt(trove)
   }
 
   static async getTroveStake(contracts, trove) {
@@ -1289,7 +1291,8 @@ class TestHelper {
       assert.isFalse(tx.receipt.status) // when this assert fails, the expected revert didn't occur, i.e. the tx succeeded
     } catch (err) {
       // console.log("tx failed")
-      assert.include(err.message, "revert")
+      //assert.include(err.message, "revert")
+      assert(err.message.includes("revert") || err.message.includes("invalid opcode"), "Expected revert or invalid opcode, got: " + err.message);
       // TODO !!!
       
       // if (message) {

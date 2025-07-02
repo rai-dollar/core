@@ -109,6 +109,8 @@ interface ITroveManager is ILiquityBase {
         uint pendingETHReward
     );
 
+    function drip() external;
+
     function closeTrove(address _borrower) external;
 
     function removeStake(address _borrower) external;
@@ -147,5 +149,7 @@ interface ITroveManager is ILiquityBase {
     function decreaseTroveDebt(address _borrower, uint _collDecrease) external returns (uint); 
 
     function getTCR(uint _price) external view returns (uint);
+
+    function checkRecoveryMode(uint _price) external view returns (bool);
 
 }

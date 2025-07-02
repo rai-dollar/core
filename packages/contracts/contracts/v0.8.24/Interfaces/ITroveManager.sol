@@ -104,6 +104,8 @@ interface ITroveManager is ILiquityBase {
         uint pendingETHReward
     );
 
+    function drip() external;
+
     function closeTrove(address _borrower) external;
 
     function removeStake(address _borrower) external;

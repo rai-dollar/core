@@ -242,12 +242,12 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
     event TroveLiqInfo(uint256 entireColl, uint256 collToLiquidate, uint256 collToSp, uint256 collToRedistribute,
                        uint256 actualDebt, uint256 totalLUSD);
     event AccInterestRateUpdated(uint256 rate);
-    event Offset(uint256 _debtToOffset, uint256 _nDebtToOffset, uint256 _debtInSequence, uint256 _totalLUSD);
+    //event Offset(uint256 _debtToOffset, uint256 _nDebtToOffset, uint256 _debtInSequence, uint256 _totalLUSD);
     //event PreDrip(uint256 _systemDebt, uint256 _supply);
     //event PostDrip(uint256 _existingSystemDebt, uint256 _existingSupply, uint256 _existingRate,
     //               uint256 _newSystemDebt, uint256 _newSupply, uint256 _newRate, uint256 _newInterest, uint256 _rateDelta);
     //event Drip(uint256 _newInterest, uint256 _newDebt, uint256 _currentSupply);
-    event Drip(uint256 _newInterest);
+    event Drip(uint256 _stakeInterest, uint256 _spInterest);
 
      enum TroveManagerOperation {
         applyPendingRewards,
@@ -459,8 +459,8 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         uint totalActualDebtToOffset = totals.totalDebtToOffset.mul(accumulatedRate).div(RATE_PRECISION);
 
-        emit Offset(totalActualDebtToOffset, totals.totalDebtToOffset, totals.totalDebtInSequence,
-                    stabilityPoolCached.getTotalLUSDDeposits());
+        //emit Offset(totalActualDebtToOffset, totals.totalDebtToOffset, totals.totalDebtInSequence,
+        //            stabilityPoolCached.getTotalLUSDDeposits());
 
         stabilityPoolCached.offset(totalActualDebtToOffset, totals.totalDebtToOffset, totals.totalCollToSendToSP);
 
@@ -527,6 +527,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         LiquidationTotals memory totals;
 
         vars.price = priceFeed.fetchPrice();
+        _drip(relayer.getRate());
         vars.LUSDInSPForOffsets = _normalizedDebt(stabilityPoolCached.getMaxAmountToOffset());
 
         // all normalized
@@ -537,8 +538,8 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
 
         uint totalActualDebtToOffset = totals.totalDebtToOffset.mul(accumulatedRate).div(RATE_PRECISION);
 
-        emit Offset(totalActualDebtToOffset, totals.totalDebtToOffset, totals.totalDebtInSequence,
-                    stabilityPoolCached.getTotalLUSDDeposits());
+        //emit Offset(totalActualDebtToOffset, totals.totalDebtToOffset, totals.totalDebtInSequence,
+        //            stabilityPoolCached.getTotalLUSDDeposits());
 
         stabilityPoolCached.offset(totalActualDebtToOffset, totals.totalDebtToOffset, totals.totalCollToSendToSP);
 
@@ -1187,6 +1188,10 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         return _getTCR(_price, accumulatedRate);
     }
 
+    function checkRecoveryMode(uint _price) external view override returns (bool) {
+        return _checkRecoveryMode(_price, accumulatedRate);
+    }
+
     // --- Redemption fee functions ---
 
     /*
@@ -1294,7 +1299,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
     }
     */
 
-    function _calcRevenuePayments(uint256 payment) internal view returns (uint256 spPayment, uint256 stakePayment) {
+    function _calcRevenuePayments(uint256 payment) internal view returns (uint256 stakePayment, uint256 spPayment) {
         // TODO is rounding an issue here?
         stakePayment = stakeRevenueAllocation * payment / 1e18;
         spPayment = payment - stakePayment;
@@ -1305,7 +1310,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         return block.timestamp - lastAccRateUpdateTime > DRIP_STALENESS_THRESHOLD;
     }
 
-    function drip() external {
+    function drip() external override {
         uint interestRate = relayer.getRate();
         _drip(interestRate);
     }
@@ -1345,11 +1350,14 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         }
 
         //emit Drip(newInterest, newDebt, currentSupply);
-        emit Drip(newInterest);
 
-        if (newInterest == 0) return;
-
+        if (newInterest == 0) {
+            emit Drip(0, 0);
+            return;
+        }
         (uint256 spPayment, uint256 stakePayment) = _calcRevenuePayments(newInterest);
+
+        emit Drip(stakePayment, spPayment);
 
         // Mint and distribute to SP
         lusdToken.mint(address(stabilityPool), spPayment);
