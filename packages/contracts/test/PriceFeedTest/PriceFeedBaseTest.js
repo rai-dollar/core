@@ -103,6 +103,11 @@ contract('PriceFeedUnitTests', async accounts => {
         return parseFloat(hre.ethers.utils.formatEther(price));
     }
 
+    function getEventFromReceipt(receipt, logString) {
+        const log = receipt.events.filter(log => log.event === logString)[0];
+        return log;
+    }
+
     describe("PriceFeedBase", () => {
 
         it("should get the primary oracle price", async () => {
@@ -118,6 +123,15 @@ contract('PriceFeedUnitTests', async accounts => {
             const receipt = await tx.wait();
             const price = getPriceFromReceipt(receipt);
             expect(parseFloat(price)).to.equal(2000);
+        });
+
+        it("should use last good response if both oracles are stale", async () => {
+            mockMarketAggregator.setUpdateTime(blockTimestamp - 1000);
+            mockFallbackAggregator.setUpdateTime(blockTimestamp - 1000);
+            const tx = await priceFeedBase.fetchPrice(false);
+            const receipt = await tx.wait();
+            const priceSource = getEventFromReceipt(receipt, "MarketPriceSourceChanged");
+            expect(priceSource.args.marketPriceSource).to.equal(2);
         });
 
     })
