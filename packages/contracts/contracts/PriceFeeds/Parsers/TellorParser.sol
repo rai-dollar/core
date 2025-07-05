@@ -17,10 +17,8 @@ library TellorParser {
         uint256 timestamp;
         bool success;
     }
-    function getResponse() internal view returns (IPriceFeed.Response memory response) {
+    function getResponse(address _tellorOracle, bytes32 _oracleId) internal view returns (IPriceFeed.Response memory response) {
     }
 
-    function tellorStalenessThreshold() internal pure returns (uint256) {
-        return C.TELLOR_STALENESS_THRESHOLD;
-    }
+
 }
