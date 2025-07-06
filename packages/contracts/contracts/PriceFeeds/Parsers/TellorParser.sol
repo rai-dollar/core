@@ -2,9 +2,9 @@
 
 pragma solidity 0.8.24;
 
-import "../Common/TellorCaller.sol";
 import "../Interfaces/IPriceFeed.sol";
 import {Constants as C} from "../Common/Constants.sol";
+import {ITellor} from "../Interfaces/ITellor.sol";
 
 /*
 * this library is used to parse the response from the Tellor oracle and convert it to the Response struct
@@ -13,11 +13,35 @@ import {Constants as C} from "../Common/Constants.sol";
 library TellorParser {
     struct TellorResponse {
         bool ifRetrieve;
-        uint256 value;
+        bytes data;
         uint256 timestamp;
-        bool success;
     }
-    function getResponse(address _tellorOracle, bytes32 _oracleId) internal view returns (IPriceFeed.Response memory response) {
+    function getResponse(address _tellorOracle, bytes32 _oracleId, uint256 stalenessThreshold) internal view returns (IPriceFeed.Response memory response) {
+        ITellor tellor = ITellor(_tellorOracle);
+        TellorResponse memory tellorResponse;
+
+        uint256 gasBefore = gasleft();
+
+        try tellor.getDataBefore(_oracleId, block.timestamp - stalenessThreshold) returns (bool ifRetrieve, bytes memory data, uint256 timestampRetrieved) {
+            tellorResponse.ifRetrieve = ifRetrieve;
+            tellorResponse.data = data;
+            tellorResponse.timestamp = timestampRetrieved;
+            
+        } catch {
+            // Require that enough gas was provided to prevent an OOG revert in the call to Chainlink
+            // causing a shutdown. Instead, just revert. Slightly conservative, as it includes gas used
+            // in the check itself.
+            if (gasleft() <= gasBefore / 64) revert IPriceFeed.InsufficientGasForExternalCall();
+
+
+            return response;
+        }
+
+        response.success = true;
+        response.price = abi.decode(tellorResponse.data, (uint256));
+        response.lastUpdated = tellorResponse.timestamp;
+
+        return response;
     }
 
 
