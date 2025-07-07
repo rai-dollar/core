@@ -16,13 +16,13 @@ library TellorParser {
         bytes data;
         uint256 timestamp;
     }
-    function getResponse(address _tellorOracle, bytes32 _oracleId, uint256 stalenessThreshold) internal view returns (IPriceFeed.Response memory response) {
+    function getResponse(address _tellorOracle, bytes32 _queryId, uint256 stalenessThreshold) internal view returns (IPriceFeed.Response memory response) {
         ITellor tellor = ITellor(_tellorOracle);
         TellorResponse memory tellorResponse;
 
         uint256 gasBefore = gasleft();
 
-        try tellor.getDataBefore(_oracleId, block.timestamp - stalenessThreshold) returns (bool ifRetrieve, bytes memory data, uint256 timestampRetrieved) {
+        try tellor.getDataBefore(_queryId, block.timestamp - stalenessThreshold) returns (bool ifRetrieve, bytes memory data, uint256 timestampRetrieved) {
             tellorResponse.ifRetrieve = ifRetrieve;
             tellorResponse.data = data;
             tellorResponse.timestamp = timestampRetrieved;
@@ -37,10 +37,11 @@ library TellorParser {
             return response;
         }
 
-        response.success = true;
+        
         response.price = abi.decode(tellorResponse.data, (uint256));
         response.lastUpdated = tellorResponse.timestamp;
-
+        response.success = response.lastUpdated != 0 && response.price != 0;
+        
         return response;
     }
 

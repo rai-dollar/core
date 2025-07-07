@@ -60,7 +60,6 @@ contract('OracleParserTest', async accounts => {
             const tx = await parserTester.testTellorParser();
             const receipt = await tx.wait();
             const { price, lastUpdated } = getPriceFromLogs(receipt, "TellorResponse");
-
             expect(price).to.be.greaterThan(0).and.lessThan(parseFloat(hre.ethers.utils.parseEther("5000")));
             expect(lastUpdated).to.be.greaterThan(0).and.lessThan(Date.now() / 1000);
         })

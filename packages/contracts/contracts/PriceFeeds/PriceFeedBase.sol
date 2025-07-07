@@ -77,9 +77,15 @@ abstract contract PriceFeedBase is IPriceFeed {
             emit MarketPriceSourceChanged(marketPriceSource);
 
                 if (_marketPriceSource == PriceSource.lastGoodResponse) {
-                emit ShutdownInitiated("Market Oracle Failure", block.timestamp);
+                _shutdownAndSwitchToLastGoodPrice();
                 }
         }
+    }
+
+    function _shutdownAndSwitchToLastGoodResponse() internal virtual {
+        // TODO:include shutdown logic here
+
+        emit ShutdownInitiated("Market Oracle Failure", block.timestamp);
     }
 
     function _storeLastGoodMarketResponse(Response memory _response) internal {
