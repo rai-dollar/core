@@ -56,6 +56,18 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
 
     // --- Internal Functions ---
 
+    function _getPrimaryCompositeOracleResponse() internal returns (Response memory) {
+        Response memory response = _fetchPrimaryCompositeOraclePrice();
+        response.success = isGoodResponse(response, primaryCompositeOracle.stalenessThreshold);
+        return response;
+    }
+
+    function _getFallbackCompositeOracleResponse() internal returns (Response memory) {
+        Response memory response = _fetchFallbackCompositeOraclePrice();
+        response.success = isGoodResponse(response, fallbackCompositeOracle.stalenessThreshold);
+        return response;
+    }
+
     function _compositePrimaryIsSet() internal view returns (bool) {
         return primaryCompositeOracle.oracle != address(0) && primaryCompositeOracle.stalenessThreshold > 0;
     }
@@ -78,9 +90,16 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
             emit CompositePriceSourceChanged(compositePriceSource, block.timestamp);
 
                 if (_priceSource == PriceSource.lastGoodResponse) {
-                    emit ShutdownInitiated("Composite Oracle Shut Down", block.timestamp);
+                    _shutdownAndSwitchToLastGoodCompositeResponse();
                 }
         }
+    }
+
+    function _shutdownAndSwitchToLastGoodCompositeResponse() internal virtual {
+        // TODO:include shutdown logic here
+        // set last good response to false to indicate that oracle response is not good
+        lastGoodCompositeResponse.success = false;
+        emit ShutdownInitiated("Composite Oracle Failure", block.timestamp);
     }
 
     function _getMaxRedemptionPrice(Response memory _stEthUsdPriceResponse, 

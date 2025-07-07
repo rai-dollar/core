@@ -48,7 +48,23 @@ abstract contract PriceFeedBase is IPriceFeed {
 
     // must override with specific logic for each collateral type and oracle combination
     function fetchPrice(bool _isRedemption) external virtual returns (uint256);
-   
+    
+    function _getPrimaryMarketOracleResponse() internal returns (Response memory) {
+           Response memory response = _fetchPrimaryMarketOraclePrice();
+
+           response.success = isGoodResponse(response, primaryMarketOracle.stalenessThreshold);
+
+           return response;
+    }
+
+    function _getFallbackMarketOracleResponse() internal returns (Response memory) {
+             Response memory response = _fetchFallbackMarketOraclePrice();
+
+           response.success = isGoodResponse(response, fallbackMarketOracle.stalenessThreshold);
+
+           return response;
+    }
+
     // must override with the library of the primary oracle
     function _fetchPrimaryMarketOraclePrice() internal virtual returns (Response memory);
 
@@ -77,14 +93,15 @@ abstract contract PriceFeedBase is IPriceFeed {
             emit MarketPriceSourceChanged(marketPriceSource);
 
                 if (_marketPriceSource == PriceSource.lastGoodResponse) {
-                _shutdownAndSwitchToLastGoodPrice();
+                _shutdownAndSwitchToLastGoodMarketResponse();
                 }
         }
     }
 
-    function _shutdownAndSwitchToLastGoodResponse() internal virtual {
+    function _shutdownAndSwitchToLastGoodMarketResponse() internal virtual {
         // TODO:include shutdown logic here
-
+        // set last good response to false to indicate that oracle response is not good
+        lastGoodMarketResponse.success = false;
         emit ShutdownInitiated("Market Oracle Failure", block.timestamp);
     }
 
