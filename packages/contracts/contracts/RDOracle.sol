@@ -137,6 +137,7 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         minObservationDelta = _minObservationDelta;
         // Initialize oracle state with price of 1 RD/USD
         _initialize(2 ** 96);
+        // _initialize(_convertPriceToSqrtPriceX96(_WAD));
     }
 
     /// @inheritdoc IHooks
@@ -233,11 +234,7 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     // --- Methods ---
 
     /// @inheritdoc IRDOracle
-    function getFastResultWithValidity()
-        public
-        view
-        returns (uint256 _fastResult, bool _fastValidity)
-    {
+    function getFastResultWithValidity() public view returns (uint256 _result, bool _validity) {
         // If the pool doesn't have enough history return false
 
         uint32[] memory secondsAgos = new uint32[](2);
@@ -245,10 +242,12 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         secondsAgos[1] = _MIN_PRICE_AGE;
         (int56[] memory tickCumulatives, ) = this.observe(secondsAgos);
         int56 tickCumulativesDelta = tickCumulatives[1] - tickCumulatives[0];
-        int24 arithmeticMeanTick = int24(tickCumulativesDelta / int56(int32(quotePeriodFast)));
+        int24 arithmeticMeanTick = int24(
+            tickCumulativesDelta / int56(int32(quotePeriodFast - _MIN_PRICE_AGE))
+        );
         uint160 sqrtPriceX96 = TickMath.getSqrtRatioAtTick(arithmeticMeanTick);
-        _fastResult = _convertSqrtPriceX96ToPrice(sqrtPriceX96);
-        _fastValidity = true;
+        _result = _convertSqrtPriceX96ToPrice(sqrtPriceX96);
+        _validity = true;
     }
 
     /// @inheritdoc IRDOracle
@@ -269,7 +268,9 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         secondsAgos[1] = _MIN_PRICE_AGE;
         (int56[] memory tickCumulatives, ) = this.observe(secondsAgos);
         int56 tickCumulativesDelta = tickCumulatives[1] - tickCumulatives[0];
-        int24 arithmeticMeanTick = int24(tickCumulativesDelta / int56(int32(quotePeriodSlow)));
+        int24 arithmeticMeanTick = int24(
+            tickCumulativesDelta / int56(int32(quotePeriodSlow - _MIN_PRICE_AGE))
+        );
         uint160 sqrtPriceX96 = TickMath.getSqrtRatioAtTick(arithmeticMeanTick);
         _result = _convertSqrtPriceX96ToPrice(sqrtPriceX96);
         _validity = true;
@@ -405,35 +406,23 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         int24 _oldTick = oracleState.tick;
         uint160 _oldSqrtPriceX96 = oracleState.sqrtPriceX96;
 
-        // If the tick has changed, update the oracle state and write the observation
-        if (_tick != oracleState.tick) {
-            (uint16 observationIndex, uint16 observationCardinality) = observations.write(
-                oracleState.observationIndex,
-                _blockTimestamp(),
-                oracleState.tick,
-                0,
-                oracleState.observationCardinality,
-                oracleState.observationCardinalityNext
-            );
-            (
-                oracleState.sqrtPriceX96,
-                oracleState.tick,
-                oracleState.observationIndex,
-                oracleState.observationCardinality
-            ) = (_sqrtPriceX96, _tick, observationIndex, observationCardinality);
+        (uint16 observationIndex, uint16 observationCardinality) = observations.write(
+            oracleState.observationIndex,
+            _blockTimestamp(),
+            oracleState.tick,
+            0,
+            oracleState.observationCardinality,
+            oracleState.observationCardinalityNext
+        );
+        (
+            oracleState.sqrtPriceX96,
+            oracleState.tick,
+            oracleState.observationIndex,
+            oracleState.observationCardinality
+        ) = (_sqrtPriceX96, _tick, observationIndex, observationCardinality);
 
-            // Emit event for debugging
-            emit OraclePriceUpdated(
-                _oldTick,
-                _tick,
-                _oldSqrtPriceX96,
-                _sqrtPriceX96,
-                observationIndex
-            );
-        } else {
-            // otherwise just update the sqrtPriceX96
-            oracleState.sqrtPriceX96 = _sqrtPriceX96;
-        }
+        // Emit event for debugging
+        emit OraclePriceUpdated(_oldTick, _tick, _oldSqrtPriceX96, _sqrtPriceX96, observationIndex);
     }
 
     /**
@@ -450,8 +439,8 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     function _convertPriceToSqrtPriceX96(
         uint256 _price
     ) internal pure returns (uint160 _sqrtPriceX96) {
-        uint256 _sqrtPrice = Math.sqrt(_price);
-        return uint160(_sqrtPrice * 2 ** 96);
+        uint256 _ratio = (_price << 192) / _WAD;
+        return uint160(Math.sqrt(_ratio));
     }
 
     /**
@@ -462,7 +451,8 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     function _convertSqrtPriceX96ToPrice(
         uint160 _sqrtPriceX96
     ) internal pure returns (uint256 _price) {
-        return uint256(_sqrtPriceX96) ** 2 / 2 ** 192;
+        uint256 _numerator = uint256(_sqrtPriceX96) * uint256(_sqrtPriceX96) * _WAD;
+        return _numerator >> 192;
     }
 
     /**

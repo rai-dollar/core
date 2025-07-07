@@ -9,8 +9,10 @@ const testHelpers = require("../utils/testHelpers.js");
 const th = testHelpers.TestHelper;
 const assertRevert = th.assertRevert;
 
+const RDOracleTestHelper = artifacts.require("./TestContracts/RDOracleTestHelper.sol");
 const RDOracle = artifacts.require("./RDOracle.sol");
 const Vault = artifacts.require("./Vendor/@balancer-labs/v3-vault/contracts/Vault.sol");
+
 const StablePoolFactory = artifacts.require(
   "./Vendor/@balancer-labs/v3-pool-stable/contracts/StablePoolFactory.sol"
 );
@@ -20,9 +22,13 @@ const StablePool = artifacts.require(
 const Router = artifacts.require("./Vendor/@balancer-labs/v3-vault/contracts/Router.sol");
 
 const ERC20 = artifacts.require("@openzeppelin/contracts/token/ERC20/ERC20.sol:ERC20");
+const MockERC20 = artifacts.require(
+  "./Vendor/@balancer-labs/dependencies/@openzeppelin/contracts/token/ERC20/MockERC20.sol"
+);
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const DEFAULT_AMP_FACTOR = 1000;
+// const DEFAULT_AMP_FACTOR = 1000;
+const DEFAULT_AMP_FACTOR = 10;
 const BASE_MIN_SWAP_FEE = 1e12; // 0.001% (in WAD)
 
 const TokenType = {
@@ -37,7 +43,7 @@ const RD_DECIMALS = 18;
 
 // Placeholder Whale Addresses - REPLACE THESE WITH ACTUAL WHALE ADDRESSES FROM MAINNET
 const USDC_WHALE = "0x37305B1cD40574E4C5Ce33f8e8306Be057fD7341"; // Example: A known rich USDC address
-const USDT_WHALE = "0xF977814e90dA44bFA03b6295A0616a897441aceC"; // Example: Binance USDT hot wallet
+const USDT_WHALE = "0x5754284f345afc66a98fbB0a0Afe71e0F007B949"; // Example: Binance USDT hot wallet
 const DAI_WHALE = "0xD1668fB5F690C59Ab4B0CAbAd0f8C1617895052B"; // Example: A known rich DAI address
 const RDT_WHALE = "0x7283edAEFED54d96aFA87d4BCeF0EB6f0F3eF6c6"; // REPLACE: An address holding a lot of your RDT token
 
@@ -45,9 +51,17 @@ const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 
 const anvilAccount1 = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 
+const INIT_POOL_TOKEN_AMOUNT = "1000"; // 100k tokens
+const TOKEN_ACQUIRE_AMOUNT = "1000000";
+const TOKEN_ACQUIRE_AMOUNT_ALT = "100000000000000000";
+
 const swapperAccount = anvilAccount1; // The account that will perform swaps and provide initial liquidity
 
 contract("RDOracle", async accounts => {
+  let mockRD, mockUSDC, mockUSDT, mockDAI;
+  let rdAddress, usdcAddress, usdtAddress, daiAddress;
+  let RDTAddress, USDCAddress, USDTAddress, DAIAddress;
+  let sortedAddresses, stablecoins;
   let RD, USDC, USDT, DAI;
   let vault, rdOracle, stablePoolFactory;
   let newPoolAddress, poolId;
@@ -56,41 +70,23 @@ contract("RDOracle", async accounts => {
   const ethersSigner = provider.getSigner(anvilAccount1);
 
   const QUOTE_PERIOD_FAST = 300; // 5 minutes
-  const QUOTE_PERIOD_SLOW = 3600; // 1 hour
+  const QUOTE_PERIOD_SLOW = 900; // 15 minutes
   const MIN_OBSERVATION_DELTA = 60; // 1 minute
-
-  const USDCAddress = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"; // 6 decimals
-  const USDTAddress = "0xdAC17F958D2ee523a2206206994597C13D831ec7"; // 6 decimals
-  const DAIAddress = "0x6B175474E89094C44Da98b954EedeAC495271d0F"; // 18 decimals
-
-  const RDTAddress = "0x01420eC851Ad4202894BEA0D48dE097dEeadc1a8"; // 18 decimals
 
   const balv3StablePoolFactory = "0xB9d01CA61b9C181dA1051bFDd28e1097e920AB14";
   const balv3Vault = "0xbA1333333333a1BA1108E8412f11850A5C319bA9";
   const balv3Router = "0xAE563E3f8219521950555F5962419C8919758Ea2";
 
-  const stablecoins = [USDCAddress, USDTAddress, DAIAddress];
+  const logsOn = true;
 
-  const logsOn = false;
-
-  async function setupContracts(logSetup = false) {
+  async function setupBalancerContracts(logSetup = false) {
     const showLogs = logsOn && logSetup;
-    USDC = await ERC20.at(USDCAddress);
-    USDT = await ERC20.at(USDTAddress);
-    DAI = await ERC20.at(DAIAddress);
-    RD = await ERC20.at(RDTAddress);
-
     vault = await Vault.at(balv3Vault);
     router = await Router.at(balv3Router);
-
     stablePoolFactory = await StablePoolFactory.at(balv3StablePoolFactory);
 
     if (showLogs) {
-      console.log("Setup Contracts");
-      console.log("RD:", RD.address);
-      console.log("USDC:", USDC.address);
-      console.log("USDT:", USDT.address);
-      console.log("DAI:", DAI.address);
+      console.log("Setup Balancer Contracts");
       console.log("Vault:", vault.address);
       console.log("Router:", router.address);
       console.log("StablePoolFactory:", stablePoolFactory.address);
@@ -116,92 +112,6 @@ contract("RDOracle", async accounts => {
     return [tokenAddress, tokenType, rateProvider, paysYieldFees];
   }
 
-  async function setupTokenAcquisition(logSetup = false) {
-    const showLogs = logsOn && logSetup;
-    if (showLogs) {
-      console.log("Starting token acquisition for swapperAccount:", swapperAccount);
-    }
-
-    const tokensToAcquire = [
-      {
-        token: RD,
-        whale: RDT_WHALE,
-        amount: ethers.utils.parseUnits("10000", RD_DECIMALS),
-        name: "RD"
-      },
-      {
-        token: DAI,
-        whale: DAI_WHALE,
-        amount: ethers.utils.parseUnits("10000", DAI_DECIMALS),
-        name: "DAI"
-      },
-      {
-        token: USDC,
-        whale: USDC_WHALE,
-        amount: ethers.utils.parseUnits("10000", USDC_DECIMALS),
-        name: "USDC"
-      },
-      {
-        token: USDT,
-        whale: USDT_WHALE,
-        amount: ethers.utils.parseUnits("10000", USDT_DECIMALS),
-        name: "USDT"
-      }
-    ];
-
-    for (const { token, whale, amount, name } of tokensToAcquire) {
-      try {
-        const decimalsBN = await token.decimals();
-        const decimalsNumber = decimalsBN.toNumber();
-
-        if (showLogs) {
-          console.log(
-            `Attempting to acquire ${ethers.utils.formatUnits(
-              amount,
-              decimalsNumber
-            )} ${name} from whale ${whale}...`
-          );
-        }
-
-        // Ensure whale has ETH to pay for gas.
-        // This gives the impersonated whale 1 ETH on the fork.
-        await ethers.provider.send("hardhat_setBalance", [whale, "0xDE0B6B3A7640000"]);
-
-        await ethers.provider.send("hardhat_impersonateAccount", [whale]);
-        const whaleSigner = await ethers.getSigner(whale);
-        const tokenFromWhale = new ethers.Contract(token.address, token.abi, whaleSigner);
-
-        if (showLogs) {
-          console.log(`Whale ${whale} impersonated for ${name}. Attempting transfer...`);
-        }
-        await tokenFromWhale.transfer(swapperAccount, amount);
-        if (showLogs) {
-          console.log(`Transfer call for ${name} completed.`);
-        }
-
-        await ethers.provider.send("hardhat_stopImpersonatingAccount", [whale]);
-
-        const swapperBalance = await token.balanceOf(swapperAccount);
-        if (showLogs) {
-          console.log(
-            `Acquired ${name}. Swapper ${name} balance: ${ethers.utils.formatUnits(
-              swapperBalance.toString(),
-              decimalsNumber
-            )}`
-          );
-        }
-      } catch (e) {
-        console.error(`Failed to acquire ${name} from whale ${whale}. Error: ${e.message}`, e.stack);
-        console.warn(
-          `Skipping ${name} acquisition due to error. Liquidity/swap tests for this token might be affected.`
-        );
-      }
-      if (showLogs) {
-        console.log("Token acquisition phase complete.");
-      }
-    }
-  }
-
   async function executeSwap({
     signer,
     newPoolAddress,
@@ -213,21 +123,20 @@ contract("RDOracle", async accounts => {
     tokenOutDecimals
   }) {
     const swapperAccount = anvilAccount1;
-    const amountIn = ethers.utils.parseUnits(_amountIn, tokenInDecimals); // Swap 10 RD
+    const amountIn = ethers.utils.parseUnits(_amountIn, tokenInDecimals);
     const tokenInBalance = await tokenIn.balanceOf(anvilAccount1);
 
     if (tokenInBalance.lt(amountIn)) {
       console.warn(
-        `Swapper account ${anvilAccount1} has ${ethers.utils.formatUnits(
-          tokenInBalance,
-          tokenInDecimals
-        )} ${tokenIn.symbol}, needs ${_amountIn} ${
+        `Swapper account ${anvilAccount1} has ${tokenInBalance.toString()} ${
+          tokenIn.symbol
+        }, needs ${_amountIn} ${
           tokenIn.symbol
         } for swap. Test may fail or be misleading if account is not funded externally.`
       );
     }
 
-    const minAmountOut = ethers.utils.parseUnits(_minAmountOut, tokenOutDecimals); // Expect at least 1 USDC out
+    const minAmountOut = ethers.utils.parseUnits(_minAmountOut, tokenOutDecimals);
 
     const latestTimestamp = (await time.latest()).toNumber();
     const deadline = latestTimestamp + 3600; // 1 hour
@@ -261,13 +170,12 @@ contract("RDOracle", async accounts => {
       const tokenInAllowanceToPermit2 = await tokenIn.allowance(swapperAccount, PERMIT2_ADDRESS);
       console.error(
         `Router swap transaction failed for swapper ${swapperAccount}.\n` +
-          `${tokenIn.symbol} Balance: ${ethers.utils.formatUnits(tokenInBalance, tokenInDecimals)} ${
+          `${tokenIn.symbol} Balance: ${tokenInBalance.toString()} ${
             tokenIn.symbol
-          } (need ${ethers.utils.formatUnits(amountIn, tokenInDecimals)} ${tokenIn.symbol}).\n` +
-          `${tokenIn.symbol} Allowance to Permit2: ${ethers.utils.formatUnits(
-            tokenInAllowanceToPermit2,
-            tokenInDecimals
-          )} ${tokenIn.symbol}.\n` +
+          } (need ${amountIn.toString()} ${tokenIn.symbol}).\n` +
+          `${tokenIn.symbol} Allowance to Permit2: ${tokenInAllowanceToPermit2.toString()} ${
+            tokenIn.symbol
+          }.\n` +
           `Error: ${e.message}`,
         e.stack
       );
@@ -298,12 +206,23 @@ contract("RDOracle", async accounts => {
     const poolName = "RD-USDC-USDT-DAI";
     const poolSymbol = "RD-USDC-USDT-DAI";
 
-    const truffleTokenConfigs = [
-      createTruffleTokenConfig(RDTAddress, TokenType.STANDARD),
-      createTruffleTokenConfig(DAIAddress, TokenType.STANDARD),
-      createTruffleTokenConfig(USDCAddress, TokenType.STANDARD),
-      createTruffleTokenConfig(USDTAddress, TokenType.STANDARD)
-    ];
+    // Normalize addresses and sort
+    sortedAddresses = [RDTAddress, DAIAddress, USDCAddress, USDTAddress]
+      .map(addr => ethers.utils.getAddress(addr)) // Normalize addresses
+      .sort((a, b) => {
+        const aBN = ethers.BigNumber.from(a);
+        const bBN = ethers.BigNumber.from(b);
+        return aBN.lt(bBN) ? -1 : aBN.gt(bBN) ? 1 : 0;
+      });
+
+    const addressToConfig = {
+      [RDTAddress]: createTruffleTokenConfig(RDTAddress, TokenType.STANDARD),
+      [DAIAddress]: createTruffleTokenConfig(DAIAddress, TokenType.STANDARD),
+      [USDCAddress]: createTruffleTokenConfig(USDCAddress, TokenType.STANDARD),
+      [USDTAddress]: createTruffleTokenConfig(USDTAddress, TokenType.STANDARD)
+    };
+
+    const truffleTokenConfigs = sortedAddresses.map(address => addressToConfig[address]);
 
     const amplificationParameter = DEFAULT_AMP_FACTOR;
 
@@ -391,12 +310,28 @@ contract("RDOracle", async accounts => {
 
   async function initializePool(logSetup = false) {
     const showLogs = logsOn && logSetup;
-    const exactAmountsIn = [
-      ethers.utils.parseUnits("32", RD_DECIMALS), // 10 RD
-      ethers.utils.parseUnits("32", DAI_DECIMALS), // 10 DAI
-      ethers.utils.parseUnits("32", USDC_DECIMALS), // 10 USDC
-      ethers.utils.parseUnits("32", USDT_DECIMALS) // 10 USDT
-    ];
+
+    // Create a mapping of address to decimals
+    const addressToDecimals = {
+      [RDTAddress]: RD_DECIMALS,
+      [DAIAddress]: DAI_DECIMALS,
+      [USDCAddress]: USDC_DECIMALS,
+      [USDTAddress]: USDT_DECIMALS
+    };
+
+    // Map addresses to token contracts
+    const addressToToken = {
+      [RDTAddress]: RD,
+      [DAIAddress]: DAI,
+      [USDCAddress]: USDC,
+      [USDTAddress]: USDT
+    };
+
+    // Create exact amounts in the same order as sorted addresses
+    const exactAmountsIn = sortedAddresses.map(address => {
+      const decimals = addressToDecimals[address];
+      return ethers.utils.parseUnits("1000000", decimals).toString(); // 100 tokens each
+    });
 
     try {
       // Create Permit2 contract instance
@@ -427,53 +362,41 @@ contract("RDOracle", async accounts => {
       if (showLogs) {
         console.log("Setting individual Permit2 allowances...");
       }
-
-      // Set individual permits
+      // Set individual permits for each token in sorted order
       const expiration = Math.floor(Date.now() / 1000) + 86400; // 24 hours
 
-      await permit2Contract.approve(
-        RD.address,
-        router.address,
-        exactAmountsIn[0].toString(),
-        expiration
-      );
+      for (let i = 0; i < sortedAddresses.length; i++) {
+        const tokenAddress = sortedAddresses[i];
+        const tokenContract = addressToToken[tokenAddress];
+        const amount = exactAmountsIn[i];
 
-      await permit2Contract.approve(
-        DAI.address,
-        router.address,
-        exactAmountsIn[1].toString(),
-        expiration
-      );
+        await permit2Contract.approve(tokenAddress, router.address, amount, expiration);
 
-      await permit2Contract.approve(
-        USDC.address,
-        router.address,
-        exactAmountsIn[2].toString(),
-        expiration
-      );
-
-      await permit2Contract.approve(USDT.address, router.address, "0", expiration);
-
-      await permit2Contract.approve(
-        USDT.address,
-        router.address,
-        exactAmountsIn[3].toString(),
-        expiration
-      );
+        if (showLogs) {
+          console.log(
+            `Approved ${amount} for token ${tokenAddress} (${tokenContract.symbol() || "Unknown"})`
+          );
+        }
+      }
 
       if (showLogs) {
         console.log("Permit2 allowances set, now trying initialize...");
       }
 
-      const initializePoolTx = await router.initialize(
-        newPoolAddress,
-        [RD.address, DAI.address, USDC.address, USDT.address],
-        exactAmountsIn.map(amount => amount.toString()),
-        "0",
-        false,
-        "0x",
-        { from: swapperAccount }
-      );
+      let initializePoolTx;
+      try {
+        initializePoolTx = await router.initialize(
+          newPoolAddress,
+          sortedAddresses,
+          exactAmountsIn.map(amount => amount.toString()),
+          "0",
+          false,
+          "0x",
+          { from: swapperAccount }
+        );
+      } catch (e) {
+        console.error("Error during pool initialization:", e);
+      }
 
       if (showLogs) {
         console.log("Pool initialized successfully with individual permits!");
@@ -486,6 +409,17 @@ contract("RDOracle", async accounts => {
 
   async function createOracle(logSetup = false) {
     const showLogs = logsOn && logSetup;
+
+    if (showLogs) {
+      console.log("Creating oracle...");
+      console.log("Vault:", vault.address);
+      console.log("RDTAddress:", RDTAddress);
+      console.log("QUOTE_PERIOD_FAST:", QUOTE_PERIOD_FAST);
+      console.log("QUOTE_PERIOD_SLOW:", QUOTE_PERIOD_SLOW);
+      console.log("stablecoins:", stablecoins);
+      console.log("MIN_OBSERVATION_DELTA:", MIN_OBSERVATION_DELTA);
+    }
+
     try {
       rdOracle = await RDOracle.new(
         vault.address,
@@ -503,10 +437,258 @@ contract("RDOracle", async accounts => {
     }
   }
 
-  beforeEach(async () => {
-    await setupContracts(true);
-    await createOracle(true);
-    await createPool(true);
+  function getRandomTokenPair() {
+    const tokens = [
+      { token: RD, symbol: "RD", decimals: RD_DECIMALS },
+      { token: USDC, symbol: "USDC", decimals: USDC_DECIMALS },
+      { token: USDT, symbol: "USDT", decimals: USDT_DECIMALS },
+      { token: DAI, symbol: "DAI", decimals: DAI_DECIMALS }
+    ];
+
+    // Randomly select two different tokens
+    const tokenInIndex = Math.floor(Math.random() * tokens.length);
+    let tokenOutIndex = Math.floor(Math.random() * (tokens.length - 1));
+    if (tokenOutIndex >= tokenInIndex) {
+      tokenOutIndex++; // Skip the tokenIn to avoid same token
+    }
+
+    return {
+      tokenIn: tokens[tokenInIndex],
+      tokenOut: tokens[tokenOutIndex]
+    };
+  }
+
+  function getFixedTokenPair(index) {
+    const pairs = [
+      {
+        tokenIn: { token: RD, symbol: "RD", decimals: RD_DECIMALS },
+        tokenOut: { token: USDC, symbol: "USDC", decimals: USDC_DECIMALS }
+      },
+      {
+        tokenIn: { token: USDC, symbol: "USDC", decimals: USDC_DECIMALS },
+        tokenOut: { token: RD, symbol: "RD", decimals: RD_DECIMALS }
+      },
+      {
+        tokenIn: { token: RD, symbol: "RD", decimals: RD_DECIMALS },
+        tokenOut: { token: DAI, symbol: "DAI", decimals: DAI_DECIMALS }
+      },
+      {
+        tokenIn: { token: DAI, symbol: "DAI", decimals: DAI_DECIMALS },
+        tokenOut: { token: RD, symbol: "RD", decimals: RD_DECIMALS }
+      },
+      {
+        tokenIn: { token: USDC, symbol: "USDC", decimals: USDC_DECIMALS },
+        tokenOut: { token: USDT, symbol: "USDT", decimals: USDT_DECIMALS }
+      },
+      {
+        tokenIn: { token: USDT, symbol: "USDT", decimals: USDT_DECIMALS },
+        tokenOut: { token: DAI, symbol: "DAI", decimals: DAI_DECIMALS }
+      }
+    ];
+
+    // Cycle through the pairs
+    return pairs[index % pairs.length];
+  }
+
+  async function createMockTokens(logSetup = false) {
+    const showLogs = logsOn && logSetup;
+
+    if (showLogs) {
+      console.log("Creating mock tokens...");
+    }
+
+    try {
+      // Create mock tokens with appropriate decimals
+      mockRD = await MockERC20.new("Mock RD Token", "RD", RD_DECIMALS);
+      mockUSDC = await MockERC20.new("Mock USDC", "USDC", USDC_DECIMALS);
+      mockUSDT = await MockERC20.new("Mock USDT", "USDT", USDT_DECIMALS);
+      mockDAI = await MockERC20.new("Mock DAI", "DAI", DAI_DECIMALS);
+
+      // Store addresses
+      RDTAddress = mockRD.address;
+      USDCAddress = mockUSDC.address;
+      USDTAddress = mockUSDT.address;
+      DAIAddress = mockDAI.address;
+
+      stablecoins = [USDCAddress, USDTAddress, DAIAddress];
+
+      if (showLogs) {
+        console.log("Mock tokens created:");
+        console.log("RD:", RDTAddress);
+        console.log("USDC:", USDCAddress);
+        console.log("USDT:", USDTAddress);
+        console.log("DAI:", DAIAddress);
+      }
+
+      // Mint tokens to the swapper account
+      const mintAmount = ethers.utils.parseUnits("10000000", 18); // 10M tokens each
+
+      await mockRD.mint(anvilAccount1, mintAmount);
+      await mockUSDC.mint(anvilAccount1, ethers.utils.parseUnits("10000000", USDC_DECIMALS));
+      await mockUSDT.mint(anvilAccount1, ethers.utils.parseUnits("10000000", USDT_DECIMALS));
+      await mockDAI.mint(anvilAccount1, mintAmount);
+
+      if (showLogs) {
+        console.log("Minted 10M tokens to swapper account");
+      }
+
+      // Update the global token variables
+      RD = mockRD;
+      USDC = mockUSDC;
+      USDT = mockUSDT;
+      DAI = mockDAI;
+
+      if (showLogs) {
+        console.log("Mock tokens setup complete");
+      }
+    } catch (e) {
+      console.error("Failed to create mock tokens:", e);
+      throw e;
+    }
+  }
+
+  async function buildObservationHistoryFast(logSetup = false) {
+    const showLogs = logsOn && logSetup;
+
+    // Just 5 swaps to establish basic history
+    const swapAmounts = [10000, 20000, 15000, 30000, 25000];
+    const timeInterval = 120; // Fixed interval
+
+    for (let i = 0; i < swapAmounts.length; i++) {
+      try {
+        const { tokenIn, tokenOut } = getRandomTokenPair();
+
+        // Single time increase
+        await time.increase(MIN_OBSERVATION_DELTA + timeInterval);
+
+        await executeSwap({
+          signer: ethersSigner,
+          newPoolAddress,
+          _amountIn: swapAmounts[i].toString(),
+          _minAmountOut: "1",
+          tokenIn: tokenIn.token,
+          tokenOut: tokenOut.token,
+          tokenInDecimals: tokenIn.decimals,
+          tokenOutDecimals: tokenOut.decimals
+        });
+
+        if (showLogs) {
+          console.log(`Swap ${i + 1} completed`);
+        }
+      } catch (e) {
+        console.error("Error during swap:", e);
+        throw e;
+      }
+    }
+  }
+
+  async function buildObservationHistorySmall(logSetup = false) {
+    const showLogs = logsOn && logSetup;
+    const swapAmounts = [10000, 20000, 15000, 30000, 25000, 10000, 20000, 15000, 30000, 25000];
+    const timeIntervals = [120, 180, 90, 240, 150, 120, 180, 90, 240, 150];
+
+    for (let i = 0; i < swapAmounts.length; i++) {
+      try {
+        const { tokenIn, tokenOut } = getFixedTokenPair(i);
+
+        if (showLogs) {
+          const tokenInBalance = await tokenIn.token.balanceOf(anvilAccount1);
+          console.log(`${tokenIn.symbol} balance before swap:`, tokenInBalance.toString());
+          console.log("--------------------------------");
+          console.log(`Swap ${i + 1}: ${tokenIn.symbol} -> ${tokenOut.symbol}`);
+        }
+
+        // await time.increase(MIN_OBSERVATION_DELTA + 1);
+        await time.increase(timeIntervals[i]);
+        // Perform swap with random tokens
+        await executeSwap({
+          signer: ethersSigner,
+          newPoolAddress,
+          _amountIn: swapAmounts[i].toString(),
+          _minAmountOut: "1",
+          tokenIn: tokenIn.token,
+          tokenOut: tokenOut.token,
+          tokenInDecimals: tokenIn.decimals,
+          tokenOutDecimals: tokenOut.decimals
+        });
+
+        if (showLogs) {
+          const postSwapOracleState = await rdOracle.oracleState();
+          console.log(`postSwapOracleState: ${i + 1}`);
+          logOracleState(postSwapOracleState);
+        }
+
+        // Wait additional time to create time separation
+        if (i < swapAmounts.length - 1) {
+          await time.increase(timeIntervals[i]);
+        }
+      } catch (e) {
+        console.error("Error during swap:", e);
+        throw e;
+      }
+    }
+  }
+
+  async function executeLargeSwaps() {
+    await time.increase(200);
+    await executeSwap({
+      signer: ethersSigner,
+      newPoolAddress,
+      _amountIn: "500000", // Much larger swap
+      _minAmountOut: "1",
+      tokenIn: RD,
+      tokenOut: USDC,
+      tokenInDecimals: RD_DECIMALS,
+      tokenOutDecimals: USDC_DECIMALS
+    });
+
+    // Wait more time and add another swap
+    await time.increase(300);
+    await executeSwap({
+      signer: ethersSigner,
+      newPoolAddress,
+      _amountIn: "200000",
+      _minAmountOut: "1",
+      tokenIn: USDC,
+      tokenOut: RD,
+      tokenInDecimals: USDC_DECIMALS,
+      tokenOutDecimals: RD_DECIMALS
+    });
+  }
+
+  before(async () => {
+    console.log("\n=== STARTING NEW TEST WITH MOCK TOKENS ===");
+
+    // Step 1: Create mock tokens
+    console.log("Step 1: Creating mock tokens...");
+    await createMockTokens(false);
+
+    console.log("Step 2: Setting up Balancer contracts...");
+    await setupBalancerContracts(false);
+
+    // Step 3: Create the oracle with mock token addresses
+    console.log("Step 3: Creating oracle...");
+    await createOracle(false);
+
+    // Step 4: Create the pool
+    console.log("Step 4: Creating pool...");
+    await createPool(false);
+
+    // Step 5: Initialize the pool
+    console.log("Step 5: Initializing pool...");
+    await initializePool(false);
+
+    // Step 6: Increase observation cardinality
+    console.log("Step 6: Increasing observation cardinality...");
+    await increaseObservationCardinality(rdOracle, 100);
+
+    // Step 7: Build observation history
+    console.log("Step 7: Building observation history...");
+    await buildObservationHistorySmall(true);
+
+    // Step 9: Execute large swaps
+    console.log("Step 9: Executing large swaps...");
+    await executeLargeSwaps();
   });
 
   describe("RDOracle Initialization", () => {
@@ -557,10 +739,26 @@ contract("RDOracle", async accounts => {
       );
     });
 
+    // it("should initialize oracle state with price of 1 RD/USD", async () => {
+    //   // Get the initial sqrtPriceX96 value (2^96 for price of 1)
+    //   const expectedSqrtPriceX96 = new BN("2").pow(new BN("96"));
+    //   const oracleState = await rdOracle.oracleState();
+    //   expect(oracleState.sqrtPriceX96).to.be.bignumber.equal(expectedSqrtPriceX96);
+    // });
+
     it("should initialize oracle state with price of 1 RD/USD", async () => {
-      // Get the initial sqrtPriceX96 value (2^96 for price of 1)
+      // Create a fresh oracle without any pool operations
+      const freshOracle = await RDOracle.new(
+        vault.address,
+        RDTAddress,
+        QUOTE_PERIOD_FAST,
+        QUOTE_PERIOD_SLOW,
+        stablecoins,
+        MIN_OBSERVATION_DELTA
+      );
+
+      const oracleState = await freshOracle.oracleState();
       const expectedSqrtPriceX96 = new BN("2").pow(new BN("96"));
-      const oracleState = await rdOracle.oracleState();
       expect(oracleState.sqrtPriceX96).to.be.bignumber.equal(expectedSqrtPriceX96);
     });
 
@@ -571,10 +769,17 @@ contract("RDOracle", async accounts => {
     it("should set correct stablecoin basket indices", async () => {
       const indices = await rdOracle.stablecoinBasketIndices();
       expect(indices).to.have.lengthOf(3);
-      // Verify indices are set correctly (they should match the order in the basket)
-      expect(indices[0]).to.be.bignumber.equal(new BN(2));
-      expect(indices[1]).to.be.bignumber.equal(new BN(3));
-      expect(indices[2]).to.be.bignumber.equal(new BN(1));
+
+      // Calculate expected indices based on sorted addresses
+      const originalStablecoins = [USDCAddress, USDTAddress, DAIAddress];
+      const expectedIndices = originalStablecoins.map(stablecoin => {
+        return sortedAddresses.indexOf(stablecoin);
+      });
+
+      // Verify indices are set correctly (they should match the order in the sorted addresses)
+      expect(indices[0]).to.be.bignumber.equal(new BN(expectedIndices[0]));
+      expect(indices[1]).to.be.bignumber.equal(new BN(expectedIndices[1]));
+      expect(indices[2]).to.be.bignumber.equal(new BN(expectedIndices[2]));
     });
 
     it("should revert if vault address is zero", async () => {
@@ -638,20 +843,14 @@ contract("RDOracle", async accounts => {
   describe("RDOracle cardinality", async () => {
     it("should increase cardinality", async () => {
       const beforeState = await rdOracle.oracleState();
-      expect(beforeState.observationCardinalityNext).to.be.bignumber.equal(new BN(1));
-      await increaseObservationCardinality(rdOracle, 10);
+      expect(beforeState.observationCardinalityNext).to.be.bignumber.equal(new BN(100));
+      await increaseObservationCardinality(rdOracle, 125);
       const afterState = await rdOracle.oracleState();
-      expect(afterState.observationCardinalityNext).to.be.bignumber.equal(new BN(10));
+      expect(afterState.observationCardinalityNext).to.be.bignumber.equal(new BN(125));
     });
   });
 
   describe("Balancer Pool Hook Functionality (afterSwap)", async () => {
-    beforeEach(async () => {
-      await setupTokenAcquisition(true);
-      await initializePool(true);
-      await increaseObservationCardinality(rdOracle, 10);
-    });
-
     it("should call the oracle hook onAfterSwap handler", async () => {
       try {
         const swapTx = await executeSwap({
@@ -689,7 +888,7 @@ contract("RDOracle", async accounts => {
       const shouldUpdate = timeSinceLastUpdate >= minObservationDelta.toNumber();
       expect(shouldUpdate).to.be.equal(false);
       const oracleStateBefore = await rdOracle.oracleState();
-      expect(oracleStateBefore.observationIndex.toNumber()).to.be.equal(0);
+      expect(oracleStateBefore.observationIndex.toNumber()).to.be.equal(12);
 
       try {
         await executeSwap({
@@ -708,7 +907,7 @@ contract("RDOracle", async accounts => {
       }
 
       const oracleStateAfter = await rdOracle.oracleState();
-      expect(oracleStateAfter.observationIndex.toNumber()).to.be.equal(0);
+      expect(oracleStateAfter.observationIndex.toNumber()).to.be.equal(12);
     });
 
     it("should record an observation if minObservationDelta is met", async () => {
@@ -720,7 +919,7 @@ contract("RDOracle", async accounts => {
       const shouldUpdate = timeSinceLastUpdate >= minObservationDelta.toNumber();
       expect(shouldUpdate).to.be.equal(true);
       const oracleStateBefore = await rdOracle.oracleState();
-      expect(oracleStateBefore.observationIndex.toNumber()).to.be.equal(0);
+      expect(oracleStateBefore.observationIndex.toNumber()).to.be.equal(12);
       try {
         await executeSwap({
           signer: ethersSigner,
@@ -737,16 +936,403 @@ contract("RDOracle", async accounts => {
         throw e;
       }
       const oracleStateAfter = await rdOracle.oracleState();
-      expect(oracleStateAfter.observationIndex.toNumber()).to.be.equal(1);
+      expect(oracleStateAfter.observationIndex.toNumber()).to.be.equal(13);
     });
   });
 
-  // describe("Price Reading Functions", () => {
-  //   const provider = new ethers.providers.JsonRpcProvider();
-  //   const ethersSigner = provider.getSigner(anvilAccount1);
-  //   it("should read fast price correctly", async () => {
-  //     const fastPrice = await rdOracle.readFast();
-  //     expect(fastPrice).to.be.bignumber.gt(new BN(0));
-  //   });
-  // });
+  describe("Price Reading Functions", () => {
+    it("should build observation history through multiple swaps", async () => {
+      const finalOracleState = await rdOracle.oracleState();
+      expect(finalOracleState.observationIndex.toNumber()).to.be.equal(13);
+    });
+
+    it("should read fast price correctly", async () => {
+      const fastPrice = await rdOracle.readFast();
+      expect(fastPrice.toString()).to.be.equal("1008132485486630540");
+      expect(fastPrice).to.be.bignumber.gt(new BN(0));
+      expect(fastPrice).to.be.bignumber.equal(new BN("1008132485486630540"));
+    });
+
+    it("should read slow price correctly", async () => {
+      const slowPrice = await rdOracle.readSlow();
+      expect(slowPrice.toString()).to.be.equal("1002904063656376288");
+      expect(slowPrice).to.be.bignumber.gt(new BN(0));
+      expect(slowPrice).to.be.bignumber.equal(new BN("1002904063656376288"));
+    });
+
+    it("should read both fast and slow prices", async () => {
+      const { _fastValue, _slowValue } = await rdOracle.readFastSlow();
+      expect(_fastValue.toString()).to.be.equal("1008132485486630540");
+      expect(_slowValue.toString()).to.be.equal("1002904063656376288");
+      expect(_fastValue).to.be.bignumber.gt(new BN(0));
+      expect(_slowValue).to.be.bignumber.gt(new BN(0));
+      expect(_fastValue).to.be.bignumber.equal(new BN("1008132485486630540"));
+      expect(_slowValue).to.be.bignumber.equal(new BN("1002904063656376288"));
+    });
+  });
+
+  describe("Price Calculation Functions", () => {
+    it("should get fast result with validity", async () => {
+      const { _result, _validity } = await rdOracle.getFastResultWithValidity();
+      expect(_result).to.be.bignumber.gt(new BN(0));
+      expect(_result).to.be.bignumber.equal(new BN("1008132485486630540"));
+      expect(_validity).to.be.true;
+    });
+
+    it("should get slow result with validity", async () => {
+      const { _result, _validity } = await rdOracle.getSlowResultWithValidity();
+      expect(_result).to.be.bignumber.gt(new BN(0));
+      expect(_result).to.be.bignumber.equal(new BN("1002904063656376288"));
+      expect(_validity).to.be.true;
+    });
+
+    it("should get both fast and slow results with validity", async () => {
+      const { _fastResult, _fastValidity, _slowResult, _slowValidity } =
+        await rdOracle.getFastSlowResultWithValidity();
+      expect(_fastResult).to.be.bignumber.gt(new BN(0));
+      expect(_slowResult).to.be.bignumber.gt(new BN(0));
+      expect(_fastResult).to.be.bignumber.equal(new BN("1008132485486630540"));
+      expect(_slowResult).to.be.bignumber.equal(new BN("1002904063656376288"));
+      expect(_fastValidity).to.be.true;
+      expect(_slowValidity).to.be.true;
+    });
+  });
+
+  describe("Oracle Observation Management", () => {
+    it("should observe price data correctly", async () => {
+      // Test observe() function
+      const { tickCumulatives, secondsPerLiquidityCumulativeX128s } = await rdOracle.observe([
+        300, 60
+      ]);
+      expect(tickCumulatives).to.have.lengthOf(2);
+      expect(secondsPerLiquidityCumulativeX128s).to.have.lengthOf(2);
+    });
+
+    it("should increase observation cardinality", async () => {
+      // Test increaseObservationCardinalityNext()
+      const beforeState = await rdOracle.oracleState();
+      expect(beforeState.observationCardinalityNext).to.be.bignumber.equal(new BN(125));
+      await increaseObservationCardinality(rdOracle, 150);
+      const afterState = await rdOracle.oracleState();
+      expect(afterState.observationCardinalityNext).to.be.bignumber.equal(new BN(150));
+    });
+
+    // it("should handle observation cardinality growth correctly", async () => {
+    //   // Test that cardinality grows properly and doesn't exceed maximum
+    //   let step = 1000;
+    //   const maxCardinality = 65535;
+    //   while (step < maxCardinality) {
+    //     await rdOracle.increaseObservationCardinalityNext(step);
+    //     console.log(`Increased cardinality to ${step}`);
+    //     step += 1000;
+    //   }
+    //   const state = await rdOracle.oracleState();
+    //   expect(state.observationCardinalityNext).to.be.bignumber.lte(new BN(maxCardinality));
+    // });
+  });
+
+  describe("Price Update Logic", () => {
+    it("should update oracle state when price changes", async () => {
+      // Test that oracle state updates when price changes significantly
+      const initialState = await rdOracle.oracleState();
+      await executeLargeSwaps();
+      const finalState = await rdOracle.oracleState();
+      expect(finalState.observationIndex).to.be.bignumber.gt(initialState.observationIndex);
+    });
+
+    it("should emit OracleHookCalled and OraclePriceUpdated events when price changes", async () => {
+      // Test that OraclePriceUpdated event is emitted when price changes
+      const initialState = await rdOracle.oracleState();
+
+      await time.increase(MIN_OBSERVATION_DELTA + 10); // Add buffer
+
+      const swapTx = await executeSwap({
+        signer: ethersSigner,
+        newPoolAddress,
+        _amountIn: "50000",
+        _minAmountOut: "1",
+        tokenIn: RD,
+        tokenOut: USDC,
+        tokenInDecimals: RD_DECIMALS,
+        tokenOutDecimals: USDC_DECIMALS
+      });
+
+      const receipt = await web3.eth.getTransactionReceipt(swapTx.tx);
+
+      // Filter oracle events
+      const oracleEvents = receipt.logs.filter(
+        log => log.address.toLowerCase() === rdOracle.address.toLowerCase()
+      );
+
+      if (oracleEvents.length === 0) {
+        console.log("No oracle events found. All events:");
+        receipt.logs.forEach((log, i) => {
+          console.log(`Event ${i}: ${log.address} - ${log.topics[0]}`);
+        });
+      }
+
+      const hookEventSig = web3.utils.sha3("OracleHookCalled(address,bool,uint32,uint32)");
+      const priceEventSig = web3.utils.sha3(
+        "OraclePriceUpdated(int24,int24,uint160,uint160,uint16)"
+      );
+
+      // Find and verify events
+      const hookEvent = oracleEvents.find(event => event.topics[0] === hookEventSig);
+      const priceEvent = oracleEvents.find(event => event.topics[0] === priceEventSig);
+
+      // Basic assertions
+      expect(oracleEvents.length).to.equal(2);
+      expect(hookEvent).to.not.be.undefined;
+      expect(priceEvent).to.not.be.undefined;
+      // Check that observation index actually changed
+      const finalState = await rdOracle.oracleState();
+      expect(finalState.observationIndex).to.be.bignumber.gt(initialState.observationIndex);
+    });
+  });
+
+  describe("Mathematical Functions", () => {
+    let rdOracleTestHelper;
+
+    before(async () => {
+      // Create test helper instance
+      rdOracleTestHelper = await RDOracleTestHelper.new(
+        vault.address,
+        RDTAddress,
+        QUOTE_PERIOD_FAST,
+        QUOTE_PERIOD_SLOW,
+        stablecoins,
+        MIN_OBSERVATION_DELTA
+      );
+    });
+
+    it("should calculate median correctly for odd number of elements", async () => {
+      const arr = [1, 2, 3, 4, 5];
+      const median = await rdOracleTestHelper.testCalculateMedian(arr);
+      expect(median).to.be.bignumber.equal(new BN(3));
+    });
+
+    it("should calculate median correctly for odd number of elements", async () => {
+      // Test with 1 element
+      const singleElement = [ethers.utils.parseUnits("1.5", 18)];
+      const medianSingle = await rdOracleTestHelper.testCalculateMedian(singleElement);
+      expect(medianSingle).to.be.bignumber.equal(new BN("1500000000000000000"));
+
+      // Test with 3 elements (odd)
+      const oddArray = [
+        ethers.utils.parseUnits("1.0", 18),
+        ethers.utils.parseUnits("3.0", 18),
+        ethers.utils.parseUnits("2.0", 18)
+      ];
+      const medianOdd = await rdOracleTestHelper.testCalculateMedian(oddArray);
+      // Should return 2.0 (middle element after sorting: [1.0, 2.0, 3.0])
+      expect(medianOdd).to.be.bignumber.equal(new BN("2000000000000000000"));
+
+      // Test with 5 elements (odd)
+      const fiveElementArray = [
+        ethers.utils.parseUnits("5.0", 18),
+        ethers.utils.parseUnits("1.0", 18),
+        ethers.utils.parseUnits("3.0", 18),
+        ethers.utils.parseUnits("4.0", 18),
+        ethers.utils.parseUnits("2.0", 18)
+      ];
+      const medianFive = await rdOracleTestHelper.testCalculateMedian(fiveElementArray);
+      // Should return 3.0 (middle element after sorting: [1.0, 2.0, 3.0, 4.0, 5.0])
+      expect(medianFive).to.be.bignumber.equal(new BN("3000000000000000000"));
+    });
+
+    it("should calculate median correctly for even number of elements", async () => {
+      // Test with 2 elements (even) - should return lower of the two middle elements
+      const evenArray = [ethers.utils.parseUnits("2.0", 18), ethers.utils.parseUnits("1.0", 18)];
+      const medianEven = await rdOracleTestHelper.testCalculateMedian(evenArray);
+      // Should return 1.0 (lower of the two middle elements after sorting: [1.0, 2.0])
+      expect(medianEven).to.be.bignumber.equal(new BN("1000000000000000000"));
+
+      // Test with 4 elements (even)
+      const fourElementArray = [
+        ethers.utils.parseUnits("4.0", 18),
+        ethers.utils.parseUnits("1.0", 18),
+        ethers.utils.parseUnits("3.0", 18),
+        ethers.utils.parseUnits("2.0", 18)
+      ];
+      const medianFour = await rdOracleTestHelper.testCalculateMedian(fourElementArray);
+      // Should return 2.0 (lower of the two middle elements after sorting: [1.0, 2.0, 3.0, 4.0])
+      expect(medianFour).to.be.bignumber.equal(new BN("2000000000000000000"));
+
+      // Test with 6 elements (even)
+      const sixElementArray = [
+        ethers.utils.parseUnits("6.0", 18),
+        ethers.utils.parseUnits("1.0", 18),
+        ethers.utils.parseUnits("4.0", 18),
+        ethers.utils.parseUnits("2.0", 18),
+        ethers.utils.parseUnits("5.0", 18),
+        ethers.utils.parseUnits("3.0", 18)
+      ];
+      const medianSix = await rdOracleTestHelper.testCalculateMedian(sixElementArray);
+      // Should return 3.0 (lower of the two middle elements after sorting: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+      expect(medianSix).to.be.bignumber.equal(new BN("3000000000000000000"));
+    });
+
+    it("should handle duplicate values correctly", async () => {
+      // Test with duplicates in odd array
+      const duplicateOddArray = [
+        ethers.utils.parseUnits("2.0", 18),
+        ethers.utils.parseUnits("1.0", 18),
+        ethers.utils.parseUnits("2.0", 18),
+        ethers.utils.parseUnits("3.0", 18),
+        ethers.utils.parseUnits("2.0", 18)
+      ];
+      const medianDuplicateOdd = await rdOracleTestHelper.testCalculateMedian(duplicateOddArray);
+      // Should return 2.0 (middle element after sorting: [1.0, 2.0, 2.0, 2.0, 3.0])
+      expect(medianDuplicateOdd).to.be.bignumber.equal(new BN("2000000000000000000"));
+
+      // Test with duplicates in even array
+      const duplicateEvenArray = [
+        ethers.utils.parseUnits("2.0", 18),
+        ethers.utils.parseUnits("1.0", 18),
+        ethers.utils.parseUnits("2.0", 18),
+        ethers.utils.parseUnits("3.0", 18)
+      ];
+      const medianDuplicateEven = await rdOracleTestHelper.testCalculateMedian(duplicateEvenArray);
+      // Should return 2.0 (lower of the two middle elements after sorting: [1.0, 2.0, 2.0, 3.0])
+      expect(medianDuplicateEven).to.be.bignumber.equal(new BN("2000000000000000000"));
+    });
+
+    it("should handle extreme values correctly", async () => {
+      // Test with very large and very small values
+      const extremeArray = [
+        ethers.utils.parseUnits("0.000001", 18), // Very small
+        ethers.utils.parseUnits("1000000", 18), // Very large
+        ethers.utils.parseUnits("1.0", 18) // Normal value
+      ];
+      const medianExtreme = await rdOracleTestHelper.testCalculateMedian(extremeArray);
+      // Should return 1.0 (middle element after sorting)
+      expect(medianExtreme).to.be.bignumber.equal(new BN("1000000000000000000"));
+    });
+
+    it("should revert when calculating median of empty array", async () => {
+      // Test with empty array - should revert with Oracle_MedianCalculationError
+      await assertRevert(
+        rdOracleTestHelper.testCalculateMedian([]),
+        "Oracle_MedianCalculationError()"
+      );
+    });
+
+    it("should handle realistic price data scenarios", async () => {
+      // Test with realistic stablecoin price data (slightly different from $1.00)
+      const realisticPrices = [
+        ethers.utils.parseUnits("0.9998", 18), // USDC slightly under $1
+        ethers.utils.parseUnits("1.0001", 18), // USDT slightly over $1
+        ethers.utils.parseUnits("0.9999", 18) // DAI slightly under $1
+      ];
+      const medianRealistic = await rdOracleTestHelper.testCalculateMedian(realisticPrices);
+      // Should return 0.9999 (middle element after sorting: [0.9998, 0.9999, 1.0001])
+      expect(medianRealistic).to.be.bignumber.equal(new BN("999900000000000000"));
+    });
+
+    it("should convert price to sqrtPriceX96 correctly", async () => {
+      // Test price = 1.0 WAD
+      const price1 = ethers.utils.parseUnits("1.0", 18);
+      const sqrtPriceX96_1 = await rdOracleTestHelper.testConvertPriceToSqrtPriceX96(price1);
+      const expectedSqrtPriceX96_1 = new BN("2").pow(new BN("96")); // 2^96
+      expect(sqrtPriceX96_1).to.be.bignumber.equal(expectedSqrtPriceX96_1);
+
+      // Test price = 4.0 WAD (sqrt should be 2.0 * 2^96)
+      const price4 = ethers.utils.parseUnits("4.0", 18);
+      const sqrtPriceX96_4 = await rdOracleTestHelper.testConvertPriceToSqrtPriceX96(price4);
+      const expectedSqrtPriceX96_4 = new BN("2").pow(new BN("96")).mul(new BN("2")); // 2 * 2^96
+      expect(sqrtPriceX96_4).to.be.bignumber.equal(expectedSqrtPriceX96_4);
+
+      // Test price = 0.25 WAD (sqrt should be 0.5 * 2^96)
+      const price025 = ethers.utils.parseUnits("0.25", 18);
+      const sqrtPriceX96_025 = await rdOracleTestHelper.testConvertPriceToSqrtPriceX96(price025);
+      const expectedSqrtPriceX96_025 = new BN("2").pow(new BN("96")).div(new BN("2")); // 0.5 * 2^96
+      expect(sqrtPriceX96_025).to.be.bignumber.equal(expectedSqrtPriceX96_025);
+    });
+
+    it("should convert sqrtPriceX96 to price correctly", async () => {
+      // Test sqrtPriceX96 = 2^96 (should convert back to price = 1.0 WAD)
+      const sqrtPriceX96_1 = new BN("2").pow(new BN("96"));
+      const price1 = await rdOracleTestHelper.testConvertSqrtPriceX96ToPrice(sqrtPriceX96_1);
+      const expectedPrice1 = "1000000000000000000";
+      expect(price1).to.be.bignumber.equal(expectedPrice1);
+
+      // Test sqrtPriceX96 = 2 * 2^96 (should convert to price = 4.0 WAD)
+      const sqrtPriceX96_4 = new BN("2").pow(new BN("96")).mul(new BN("2"));
+      const price4 = await rdOracleTestHelper.testConvertSqrtPriceX96ToPrice(sqrtPriceX96_4);
+      const expectedPrice4 = "4000000000000000000";
+      expect(price4).to.be.bignumber.equal(expectedPrice4);
+    });
+
+    it("should calculate partial derivative correctly", async () => {
+      // Use realistic parameters for a 4-token pool (RD, USDC, USDT, DAI)
+      const tokenBalance = ethers.utils.parseUnits("1000000", 18); // 1M tokens
+      const totalTokens = 4;
+      const ampValue = 1000; // Typical amplification value
+      const ampCoefficient = new BN(totalTokens ** totalTokens).mul(new BN(ampValue)); // n^n * A
+
+      // Realistic values for a balanced 4-token pool
+      const balancesSum = ethers.utils.parseUnits("4000000", 18); // 4M total (1M each token)
+      const poolInvariant = ethers.utils.parseUnits("4000000", 18); // ~4M invariant
+      const ampPrecision = new BN("1000"); // Standard Balancer amp precision
+
+      const partialDerivative = await rdOracleTestHelper.testCalculatePartialDerivative(
+        tokenBalance,
+        ampCoefficient,
+        poolInvariant,
+        balancesSum,
+        ampPrecision
+      );
+
+      // The partial derivative should be positive and reasonable for StableSwap
+      expect(partialDerivative).to.be.bignumber.gt(new BN("0"));
+
+      // For these parameters, expect around 256-260 (in WAD format)
+      expect(partialDerivative).to.be.bignumber.gt(new BN("250000000000000000000"));
+      expect(partialDerivative).to.be.bignumber.equal(new BN("260000000000000000000"));
+      expect(partialDerivative).to.be.bignumber.lt(new BN("270000000000000000000"));
+    });
+
+    it("should calculate partial derivative with correct mathematical properties", async () => {
+      // Test that partial derivatives behave correctly relative to each other
+      const baseBalance = ethers.utils.parseUnits("1000000", 18);
+      const higherBalance = ethers.utils.parseUnits("2000000", 18);
+
+      const totalTokens = 4;
+      const ampValue = 1000;
+      const ampCoefficient = new BN(totalTokens ** totalTokens).mul(new BN(ampValue));
+      const balancesSum = ethers.utils.parseUnits("4000000", 18);
+      const poolInvariant = ethers.utils.parseUnits("4000000", 18);
+      const ampPrecision = new BN("1000");
+
+      const derivative1 = await rdOracleTestHelper.testCalculatePartialDerivative(
+        baseBalance,
+        ampCoefficient,
+        poolInvariant,
+        balancesSum,
+        ampPrecision
+      );
+
+      const derivative2 = await rdOracleTestHelper.testCalculatePartialDerivative(
+        higherBalance,
+        ampCoefficient,
+        poolInvariant,
+        balancesSum,
+        ampPrecision
+      );
+
+      // Mathematical properties of StableSwap:
+      // 1. Partial derivatives should be positive
+      expect(derivative1).to.be.bignumber.gt(new BN("0"));
+      expect(derivative2).to.be.bignumber.gt(new BN("0"));
+
+      // 2. As token balance increases, marginal utility decreases (diminishing returns)
+      expect(derivative1).to.be.bignumber.gt(derivative2);
+
+      // 3. Both should be reasonable values for high-amp StableSwap (expect ~250-270 range)
+      expect(derivative1).to.be.bignumber.gt(new BN("250000000000000000000")); // > 250
+      expect(derivative1).to.be.bignumber.lt(new BN("300000000000000000000")); // < 300
+      expect(derivative2).to.be.bignumber.gt(new BN("100000000000000000000")); // > 100
+      expect(derivative2).to.be.bignumber.lt(new BN("300000000000000000000")); // < 300
+    });
+  });
 });
