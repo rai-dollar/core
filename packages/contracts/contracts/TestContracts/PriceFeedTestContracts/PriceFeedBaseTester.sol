@@ -7,8 +7,6 @@ import "../../PriceFeeds/Parsers/ChainlinkParser.sol";
 import "../../PriceFeeds/Parsers/Api3Parser.sol";
 
 contract PriceFeedBaseTester is PriceFeedBase {
-    Response public lastGoodPriceResponse;
-
     event PriceResponseSaved(uint256 price, uint256 lastUpdated);
     event PriceSourceChanged(PriceSource priceSource, uint256 timestamp);
 

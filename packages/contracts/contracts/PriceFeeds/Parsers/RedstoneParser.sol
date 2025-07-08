@@ -39,22 +39,19 @@ library RedstoneParser {
             response.lastUpdated = redstoneResponse.updatedAt;
             response.success = response.lastUpdated != 0 && response.price != 0;
 
-            return response;
         } catch {
             // Require that enough gas was provided to prevent an OOG revert in the call to Chainlink
             // causing a shutdown. Instead, just revert. Slightly conservative, as it includes gas used
             // in the check itself.
             if (gasleft() <= gasBefore / 64) revert IPriceFeed.InsufficientGasForExternalCall();
-
-
-            return response;
+            response.success = false;
         }
 
         if(redstoneResponse.answer <= 0) {
             revert InvalidRedstoneResponse();
         }
 
-        // cast int response to uint256 a negative value will revert
+        // cast int response to uint256 a negative value will have reverted
         response.price = uint256(redstoneResponse.answer);
         response.lastUpdated = redstoneResponse.updatedAt;
         response.success = true;

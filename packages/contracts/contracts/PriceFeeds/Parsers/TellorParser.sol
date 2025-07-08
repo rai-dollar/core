@@ -28,7 +28,7 @@ library TellorParser {
             tellorResponse.timestamp = timestampRetrieved;
             
         } catch {
-            // Require that enough gas was provided to prevent an OOG revert in the call to Chainlink
+            // Require that enough gas was provided to prevent an OOG revert in the call to Tellor
             // causing a shutdown. Instead, just revert. Slightly conservative, as it includes gas used
             // in the check itself.
             if (gasleft() <= gasBefore / 64) revert IPriceFeed.InsufficientGasForExternalCall();

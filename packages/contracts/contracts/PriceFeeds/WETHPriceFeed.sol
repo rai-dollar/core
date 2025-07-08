@@ -11,12 +11,12 @@ contract WETHPriceFeed is PriceFeedBase {
     constructor(OracleConfig memory _marketOracleConfig, address _token, uint256 _deviationThreshold) PriceFeedBase(_marketOracleConfig, _token, _deviationThreshold) {
         // ensure token is valid
         if(token.decimals() == 0) {
-            revert("Invalid token");
+            revert("WETHPriceFeed: Token decimals cannot be zero");
         }
 
         // ensure deviation threshold is valid
         if(_deviationThreshold == 0) {
-            revert("Invalid deviation threshold");
+            revert("WETHPriceFeed: Deviation threshold cannot be zero");
         }
 
         // ensure added oracles are good

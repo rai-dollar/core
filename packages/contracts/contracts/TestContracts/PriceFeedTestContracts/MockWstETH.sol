@@ -30,7 +30,7 @@ contract MockWstETH is MockERC20 {
      * @return Amount of wstETH for a given stETH amount
      */
     function getWstETHByStETH(uint256 _stETHAmount) external view returns (uint256) {
-        return _stETHAmount * 1.1e18;
+        return _stETHAmount * 1e18 / 1.1e18;
     }
 
     /**
@@ -39,7 +39,7 @@ contract MockWstETH is MockERC20 {
      * @return Amount of stETH for a given wstETH amount
      */
     function getStETHByWstETH(uint256 _wstETHAmount) external view returns (uint256) {
-        return _wstETHAmount / 1.1e18;
+        return _wstETHAmount * 1.1e18 / 1e18;
     }
 
 }
