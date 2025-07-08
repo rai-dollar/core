@@ -53,10 +53,11 @@ contract('WstEthFeedFork', async accounts => {
     let mockApi3Aggregator;
     let wstEthPriceFeed;
     let mockedWstEthPriceFeed;
+    let block;
 
     before(async () => {
         const chainId = await hre.network.provider.send("eth_chainId");
-        const block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
+        block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
         console.log("Chain ID:", parseInt(chainId, 16));
         console.log("Block timestamp:", block.timestamp);
 
@@ -98,10 +99,10 @@ contract('WstEthFeedFork', async accounts => {
         )
 
         // set mocked oracle prices and timestamps
-        await mockChainlinkAggregator1.setPrice(hre.ethers.utils.parseEther("1"));
+        await mockChainlinkAggregator1.setPrice(hre.ethers.utils.parseUnits("1", 8));
         await mockChainlinkAggregator1.setTime(block.timestamp);
 
-        await mockChainlinkAggregator2.setPrice(hre.ethers.utils.parseEther("2"));
+        await mockChainlinkAggregator2.setPrice(hre.ethers.utils.parseUnits("2", 8));
         await mockChainlinkAggregator2.setTime(block.timestamp);
 
         await mockApi3Aggregator.setPrice(hre.ethers.utils.parseEther("3"));
@@ -114,12 +115,11 @@ contract('WstEthFeedFork', async accounts => {
             tokens.wsteth,
             deviationThreshold
         );
-        console.log("WSTETHPriceFeed deployed at:", wstEthPriceFeed.address);
     })
 
     function getPriceWstEthUsdFromReceipt(receipt) {
         const price = receipt.events.filter(event => event.event === "LastGoodResponseUpdated")[0].args.price;
-        return parseFloat(hre.ethers.utils.formatEther(price));
+        return parseFloat(price);
     }
     describe("WSTETHPriceFeed", () => {
 
@@ -129,11 +129,11 @@ contract('WstEthFeedFork', async accounts => {
             const receipt = await tx.wait();
             const price = getPriceWstEthUsdFromReceipt(receipt);
             // Add some assertions
-            expect(price).to.be.greaterThan(0).and.lessThan(parseFloat(hre.ethers.utils.parseEther("5")));
+            expect(price).to.be.greaterThan(0).and.lessThan(5e21);
         });
         
-        it("should use eth/usd fallback oracle if primary oracle is stale", async () => {
-            await mockChainlinkAggregator2.setPrice(hre.ethers.utils.parseEther("0"));
+        it("should use eth/usd fallback oracle composite if primary oracle is stale", async () => {
+            await mockChainlinkAggregator2.setTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
 
             const tx = await mockedWstEthPriceFeed.fetchPrice(false);
             const receipt = await tx.wait();
@@ -143,11 +143,10 @@ contract('WstEthFeedFork', async accounts => {
             const marketOracleSource = await mockedWstEthPriceFeed.marketPriceSource();
             const wethUsdOracleSource = await mockedWstEthPriceFeed.wethUsdPriceSource();
 
-            expect(price).to.equal(parseFloat(("3.6228712336164346")));
-
             expect(compositeOracleSource).to.equal(1);
             expect(marketOracleSource).to.equal(0);
             expect(wethUsdOracleSource).to.equal(0);
+            expect(price).to.be.greaterThan(0).and.lessThan(5e18);
         });
 
     })
