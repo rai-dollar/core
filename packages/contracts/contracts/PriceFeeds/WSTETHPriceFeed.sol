@@ -14,8 +14,12 @@ interface IWSTEthRateProvider {
 
 contract WSTETHPriceFeed is CompositePriceFeedBase {
     event WstEthUsdPriceSourceChanged(PriceSource wethUsdPriceSource, uint256 timestamp);
-    event OraclePricesAboveMaxDeviation(uint256 primaryPrice, uint256 fallbackPrice, uint256 primaryTimestamp, uint256 fallbackTimestamp, uint256 deviationThreshold);
-
+    event EthUsdPricesAboveMaxDeviation(uint256 primaryPrice, uint256 fallbackPrice, uint256 primaryTimestamp, uint256 fallbackTimestamp, uint256 deviationThreshold);
+    
+    // possible states
+    // 1. primaryOracle -> steth/usd * canonical rate -> wsteth/usd
+    // 2. fallbackOracle -> eth/usd * canonical rate -> wsteth/usd
+    // 3. lastGoodResponse -> shutdown returning last good wsteth/usd
     PriceSource public wethUsdPriceSource;
 
    constructor(
@@ -82,8 +86,14 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
     }
 
     function _fetchWstEthUsdResponse(bool _isRedemption) internal returns (Response memory _wstEthUsdResponse) {
-        // since we are using only one steth/usd oracle, we can use the primary market oracle response
+        // if the price feed is shutdown, do not pass go, do not collect $200
+        if (wethUsdPriceSource == PriceSource.lastGoodResponse) {
+            return lastGoodResponse;
+        }
+
+        // since we are using only one steth/usd oracle, we can use the only primary market oracle response
         Response memory stEthUsdPriceResponse = _getPrimaryMarketOracleResponse();
+
         Response memory ethUsdPriceResponse = _fetchEthUsdPrice();
         Response memory stethPerWstethResponse = _fetchCanonicalRate();
 
@@ -94,64 +104,77 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
         }
 
         Response memory wstEthUsdResponse;
-      
-        // if market oracle and composite oracle are good, calculate the wsteth/usd price 
-        if (stEthUsdPriceResponse.success && ethUsdPriceResponse.success) {
-            bool withinDeviationThreshold = _withinDeviationThreshold(stEthUsdPriceResponse.price, ethUsdPriceResponse.price, deviationThreshold);
-            // if redemption, check if the stEthUsdPrice and ethUsdPrice are within the deviation threshold
-            if (_isRedemption && withinDeviationThreshold) {
-                // if steth/usd and eth/usd are within the deviation threshold, use the redemption max price
-                    wstEthUsdResponse = _getMaxRedemptionPrice(stEthUsdPriceResponse, ethUsdPriceResponse, stethPerWstethResponse);
-                
-            } else if (_isRedemption && !withinDeviationThreshold) {
-                // if not within the deviation threshold, use eth/usd price for calculation
-                wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
-                wstEthUsdResponse.success = true;
-                wstEthUsdResponse.lastUpdated = stethPerWstethResponse.lastUpdated;
+        
+        if (wethUsdPriceSource == PriceSource.primaryOracle) {
+            // if market oracle and composite oracle are good, calculate the wsteth/usd price 
+            if (stEthUsdPriceResponse.success && ethUsdPriceResponse.success) {
+                wstEthUsdResponse = _getStethUsdXCanonicalRate(stEthUsdPriceResponse, ethUsdPriceResponse, stethPerWstethResponse, _isRedemption);
+            } else if (!stEthUsdPriceResponse.success && ethUsdPriceResponse.success) {
+                // if market oracle is not good and composite oracle is good, use the eth/usd price and set price source to fallback
+                // redemption doesn't matter here because we are already using the best eth/usd price
+                wstEthUsdResponse = _getTokenXCanonicalRate(ethUsdPriceResponse, stethPerWstethResponse);
+                // set price source to fallback oracle to indicate we are using eth/usd x canonical rate for all cases
+                _setWethUsdPriceSource(PriceSource.fallbackOracle);
+            } 
+            // if both are not good wstEthUsdResponse.success will be false
+        } 
+        
+        if (wethUsdPriceSource == PriceSource.fallbackOracle) {
+            // check steth/usd price
+            if (stEthUsdPriceResponse.success && ethUsdPriceResponse.success) {
+                // if steth/usd is good, use the steth/usd and price and set price source to primary oracle
+                wstEthUsdResponse = _getStethUsdXCanonicalRate(stEthUsdPriceResponse, ethUsdPriceResponse, stethPerWstethResponse, _isRedemption);
+                // set price source to primary oracle to indicate we are using steth/usd x canonical rate for all cases
+                _setWethUsdPriceSource(PriceSource.primaryOracle);
+            } else if (!stEthUsdPriceResponse.success && ethUsdPriceResponse.success) {
+                // if steth/usd is not good, use the eth/usd price and keep price source to fallback
+                wstEthUsdResponse = _getTokenXCanonicalRate(ethUsdPriceResponse, stethPerWstethResponse);
+            } 
+            // if both are not good wstEthUsdResponse.success will be false
+        } 
 
-            } else if (!_isRedemption && withinDeviationThreshold) {
-                // if not a redemption and within the deviation threshold, use steth/usd price for calculation
-                wstEthUsdResponse.price = _getRedemptionPrice(stEthUsdPriceResponse.price, stethPerWstethResponse.price);
-                wstEthUsdResponse.success = true;
-                wstEthUsdResponse.lastUpdated = stethPerWstethResponse.lastUpdated;
-            } else {
-                // if not redemption and not within the deviation threshold, use eth/usd price for calculation
-                wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
-                wstEthUsdResponse.success = true;
-                wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.lastUpdated;
-            }
-
-            // if the wsteth/usd price is good, save it if not, shutdown and return last good response
-            if (wstEthUsdResponse.success) {
+        // if the wsteth/usd price is good, save it if not, shutdown and return last good response
+        if (wstEthUsdResponse.success) {
                 _saveLastGoodResponse(wstEthUsdResponse);
             } else {
+                // shutdown will set lastGoodResponse.success to false
                 _shutdownAndSwitchToLastGoodResponse(FailureType.MULTIPLE_FEED_FAILURES);
-                wstEthUsdResponse = lastGoodResponse;  
-                wstEthUsdResponse.success = false;
+                return lastGoodResponse;  
             }
-        } else if (!stEthUsdPriceResponse.success && ethUsdPriceResponse.success) {
-            // if market oracle is not good and composite oracle is good, use the eth/usd price and use fallback
-            wstEthUsdResponse.price = _getRedemptionPrice(ethUsdPriceResponse.price, stethPerWstethResponse.price);
-            wstEthUsdResponse.success = false;
-            wstEthUsdResponse.lastUpdated = ethUsdPriceResponse.lastUpdated;
-
-            _saveLastGoodResponse(wstEthUsdResponse);
-
-            _setWethUsdPriceSource(PriceSource.fallbackOracle);
-        } else {
-            //return last good response and use last good response for everything
-            _shutdownAndSwitchToLastGoodResponse(FailureType.MULTIPLE_FEED_FAILURES);
-            wstEthUsdResponse = lastGoodResponse;  
-            if(wstEthUsdResponse.success != false){
-                wstEthUsdResponse.success = false;
-            }
-        }
 
         return wstEthUsdResponse;
     }
 
+    function _getStethUsdXCanonicalRate(Response memory _stEthUsdPriceResponse, Response memory _ethUsdPriceResponse, Response memory _canonicalRateResponse, bool _isRedemption) internal view returns (Response memory stethUsdXCanonicalRateResponse) {
+                    // check if the stEthUsdPrice and ethUsdPrice are within the deviation threshold
+            bool withinDeviationThreshold = _withinDeviationThreshold(_stEthUsdPriceResponse.price, _ethUsdPriceResponse.price, deviationThreshold);
+            if (_isRedemption && withinDeviationThreshold) {
+                // if steth/usd and eth/usd are within the deviation threshold, use the redemption max price
+                    stethUsdXCanonicalRateResponse.price = _getMaxRedemptionPrice(_stEthUsdPriceResponse, _ethUsdPriceResponse, _canonicalRateResponse);
+                    stethUsdXCanonicalRateResponse.success = stethUsdXCanonicalRateResponse.price != 0;
+                    stethUsdXCanonicalRateResponse.lastUpdated = stethUsdXCanonicalRateResponse.price == _stEthUsdPriceResponse.price ? _stEthUsdPriceResponse.lastUpdated : _ethUsdPriceResponse.lastUpdated;
+            } else if (_isRedemption && !withinDeviationThreshold) {
+                // if not within the deviation threshold, use eth/usd * canonical rate price for calculation
+                stethUsdXCanonicalRateResponse = _getTokenXCanonicalRate(_ethUsdPriceResponse, _canonicalRateResponse);
+            } else if (!_isRedemption && withinDeviationThreshold && _stEthUsdPriceResponse.success) {
+                // if not a redemption and within the deviation threshold and steth/usd is good, use steth/usd price for calculation
+                stethUsdXCanonicalRateResponse = _getTokenXCanonicalRate(_stEthUsdPriceResponse, _canonicalRateResponse);
+            } else {
+                // if not redemption and not within the deviation threshold, use eth/usd price for calculation
+                stethUsdXCanonicalRateResponse = _getTokenXCanonicalRate(_ethUsdPriceResponse, _canonicalRateResponse);
+            }
+    }
+
+    function _getTokenXCanonicalRate(Response memory _tokenPriceResponse, Response memory _canonicalRateResponse) internal view returns (Response memory tokenXCanonicalRateResponse) {
+        tokenXCanonicalRateResponse.price = _getPrice(_tokenPriceResponse.price, _canonicalRateResponse.price);
+        tokenXCanonicalRateResponse.success = tokenXCanonicalRateResponse.price != 0;
+        tokenXCanonicalRateResponse.lastUpdated = _tokenPriceResponse.lastUpdated;
+        return tokenXCanonicalRateResponse;
+    }
+
+    
     // since we are using a fallback eth/usd oracle, we need to add logic to handle the fallback oracle
-    function _fetchEthUsdPrice() internal returns (Response memory _ethUsdPriceResponse) {
+    function _fetchEthUsdPrice() internal returns (Response memory) {
         if(compositePriceSource == PriceSource.primaryOracle) {
             // fetch ethUsdPrice from primary oracle
             Response memory ethUsdPriceResponse = _getPrimaryCompositeOracleResponse();
@@ -162,16 +185,17 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
             } else {
                 // if the ethUsdPrice is not good, check if the fallback oracle is good
                 Response memory ethUsdPriceResponseFallback = _getFallbackCompositeOracleResponse();
-                // if the fallback ethUsdPrice is good, save it, set price source to fallback and return it
+                // if the fallback ethUsdPrice is good, set price source to fallback and return it
                 if (ethUsdPriceResponseFallback.success) {
                     _setCompositePriceSource(PriceSource.fallbackOracle);
                     return ethUsdPriceResponseFallback;
                     
                 } else {
-                     // if the fallback ethUsdPrice is not good, set shut down price feed and return
+                     // if the fallback ethUsdPrice is not good, shut down price feed and return
                      // an empty response with no value and success false
                     _shutdownAndSwitchToLastGoodResponse(FailureType.COMPOSITE_ORACLE_FAILURE);
-                    return _ethUsdPriceResponse;
+                    Response memory emptyResponse;
+                    return emptyResponse;
                 }
             }
         } 
@@ -196,14 +220,9 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
                 ethUsdPriceResponse : ethUsdPriceResponseFallback;
 
                 return ethUsdPriceResponse;
-            // if not within the deviation threshold but both price feeds are good, use the max price to protect protocol
+            // if not within the deviation threshold but both price feeds are good, keep using fallback until prices are within the deviation threshold
            } else if (ethUsdPriceResponse.success && ethUsdPriceResponseFallback.success && !withinDeviationThreshold) {
-                emit OraclePricesAboveMaxDeviation(
-                    ethUsdPriceResponse.price, ethUsdPriceResponseFallback.price,
-                    ethUsdPriceResponse.lastUpdated, ethUsdPriceResponseFallback.lastUpdated,
-                    deviationThreshold
-                    );
-                return ethUsdPriceResponse.price > ethUsdPriceResponseFallback.price ? ethUsdPriceResponse : ethUsdPriceResponseFallback;
+                return ethUsdPriceResponseFallback;
            } else if(!ethUsdPriceResponse.success && ethUsdPriceResponseFallback.success) {
                 // if fallback is good and primary is not, keep price source as fallback and return fallback response
                 return ethUsdPriceResponseFallback;
@@ -220,8 +239,9 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
         } 
 
         assert(compositePriceSource == PriceSource.lastGoodResponse);
-        // since we're not storing the primary or composite oracle responses, lastGood will be empty indicating a failure
-        return _ethUsdPriceResponse;
+        // return an empty Response to indicate a failure
+        Response memory emptyResponse;
+        return emptyResponse;
     }
 
     // --- Oracle Overrides ---
@@ -276,10 +296,13 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
 
     // overridden from composite base and PriceFeedBase to shut down all price sources in the event of a failure
     function _shutdownAndSwitchToLastGoodResponse(FailureType _failureType) internal override  {
+
         lastGoodResponse.success = false;
+
         _setWethUsdPriceSource(PriceSource.lastGoodResponse);
         _setCompositePriceSource(PriceSource.lastGoodResponse);
         _setMarketPriceSource(PriceSource.lastGoodResponse);
+        
         emit ShutdownInitiated(_failureType, block.timestamp);
     }
 

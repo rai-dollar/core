@@ -123,10 +123,11 @@ abstract contract PriceFeedBase is IPriceFeed {
         }
     }
 
+    // @note must override in child contract to handle full shutdown logic
     function _shutdownAndSwitchToLastGoodResponse(FailureType _failureType) internal virtual {
-        // TODO:include shutdown logic here
         // set last good response to false to indicate that oracle response is not good
         lastGoodResponse.success = false;
+        _setMarketPriceSource(PriceSource.lastGoodResponse);
         emit ShutdownInitiated(_failureType, block.timestamp);
     }
 

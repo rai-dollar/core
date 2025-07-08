@@ -98,6 +98,7 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
         }
     }
 
+    // @note must override in child contract to handle full shutdown logic
     function _shutdownAndSwitchToLastGoodResponse(FailureType _failureType) internal virtual override {
         // set market and composite price source to last good response
         lastGoodResponse.success = false;
@@ -110,17 +111,13 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
     function _getMaxRedemptionPrice(Response memory _stEthUsdPriceResponse, 
     Response memory _ethUsdPriceResponse, 
     Response memory _lstRateResponse
-    ) internal view returns (Response memory _redemptionResponse) {
+    ) internal view returns (uint256 _redemptionPrice) {
         uint256 maxPrice =  LiquityMath._max(_stEthUsdPriceResponse.price, _ethUsdPriceResponse.price);
-        
-        _redemptionResponse.price = _getRedemptionPrice(maxPrice, _lstRateResponse.price);
-        _redemptionResponse.success = _redemptionResponse.price != 0;
-        _redemptionResponse.lastUpdated = block.timestamp;
 
-        return _redemptionResponse;
+        return _getPrice(maxPrice, _lstRateResponse.price);
     }
 
-    function _getRedemptionPrice(uint256 _maxPrice, 
+    function _getPrice(uint256 _maxPrice, 
     uint256 _lstRate
     ) internal pure returns (uint256 _redemptionPrice) {
         _redemptionPrice =  _maxPrice * _lstRate / 1e18;
