@@ -15,11 +15,12 @@ contract MockChainlinkAggregator is AggregatorV3Interface {
     uint private prevUpdateTime;
 
     uint80 private latestRoundId;
+
     uint80 private prevRoundId;
 
-    bool latestRevert;
-    bool prevRevert;
-    bool decimalsRevert;
+    bool revertGetRoundData;
+    bool revertLatestRoundData;
+    bool revertDecimals;
 
     // --- Functions ---
 
@@ -43,16 +44,16 @@ contract MockChainlinkAggregator is AggregatorV3Interface {
         updateTime = _updateTime;
     }
 
-    function setLatestRevert() external  {
-        latestRevert = !latestRevert;
+    function setRevertGetRoundData(bool _revert) external  {
+        revertGetRoundData = _revert;
     }
 
-    function setPrevRevert() external  {
-        prevRevert = !prevRevert;
+    function setRevertLatestRoundData(bool _revert) external  {
+        revertLatestRoundData = _revert;
     }
 
-    function setDecimalsRevert() external {
-        decimalsRevert = !decimalsRevert;
+    function setRevertDecimals(bool _revert) external {
+        revertDecimals = _revert;
     }
 
     function setLatestRoundId(uint80 _latestRoundId) external {
@@ -67,7 +68,7 @@ contract MockChainlinkAggregator is AggregatorV3Interface {
     // --- Getters that adhere to the AggregatorV3 interface ---
 
     function decimals() external override view returns (uint8) {
-        if (decimalsRevert) {require(1== 0, "decimals reverted");}
+        if (revertDecimals) {revert("decimals reverted");}
 
         return decimalsVal;
     }
@@ -84,7 +85,7 @@ contract MockChainlinkAggregator is AggregatorV3Interface {
         uint80 answeredInRound
     ) 
     {    
-        if (latestRevert) { require(1== 0, "latestRoundData reverted");}
+        if (revertLatestRoundData) { revert("latestRoundData reverted");}
 
         return (latestRoundId, price, 0, updateTime, 0); 
     }
@@ -100,7 +101,7 @@ contract MockChainlinkAggregator is AggregatorV3Interface {
       uint256 updatedAt,
       uint80 answeredInRound
     ) {
-        if (prevRevert) {require( 1== 0, "getRoundData reverted");}
+        if (revertGetRoundData) {revert("getRoundData reverted");}
 
         return (prevRoundId, prevPrice, 0, updateTime, 0);
     }

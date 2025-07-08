@@ -9,6 +9,27 @@ contract WETHPriceFeed is PriceFeedBase {
     bytes32 public constant TELLOR_ETH_USD_QUERY_ID = 0x83a7f3d48786ac2667503a61e8c415438ed2922eb86a2906e4ee66d9a2ce4992; 
 
     constructor(OracleConfig memory _marketOracleConfig, address _token, uint256 _deviationThreshold) PriceFeedBase(_marketOracleConfig, _token, _deviationThreshold) {
+        // ensure token is valid
+        if(token.decimals() == 0) {
+            revert("Invalid token");
+        }
+
+        // ensure deviation threshold is valid
+        if(_deviationThreshold == 0) {
+            revert("Invalid deviation threshold");
+        }
+
+        // ensure added oracles are good
+        Response memory primaryResponse = _getPrimaryMarketOracleResponse();
+        Response memory fallbackResponse = _getFallbackMarketOracleResponse();
+
+        // if primary is good, save it and set market price source to primary
+        if(primaryResponse.success && fallbackResponse.success) {
+            _saveLastGoodResponse(primaryResponse);
+            _setMarketPriceSource(PriceSource.primaryOracle);
+        } else {
+            revert("Invalid oracle configuration");
+        }
     }
 
     function fetchPrice(bool _isRedemption) external override returns (uint256 price) {
@@ -16,17 +37,20 @@ contract WETHPriceFeed is PriceFeedBase {
         if (marketPriceSource == PriceSource.primaryOracle) {
           Response memory primaryResponse = _getPrimaryMarketOracleResponse();
             if(primaryResponse.success) {
-                _storeLastGoodMarketResponse(primaryResponse);
+                _saveLastGoodResponse(primaryResponse);
                 return primaryResponse.price;
+                // if primary is not good, fetch fallback   
             } else {
                 Response memory fallbackResponse = _getFallbackMarketOracleResponse();
-
+                // if fallback is good, save it and return it
                 if(fallbackResponse.success) {
-                    _storeLastGoodMarketResponse(fallbackResponse);
+                    _saveLastGoodResponse(fallbackResponse);
                     _setMarketPriceSource(PriceSource.fallbackOracle);
                     return fallbackResponse.price;
                 } else {
-                    _setMarketPriceSource(PriceSource.lastGoodResponse);
+                    // if both are bad, shut down price feed and return last good response
+                    _shutdownAndSwitchToLastGoodResponse(FailureType.MARKET_ORACLE_FAILURE);
+                    return lastGoodResponse.price;
                 }
             }
         }
@@ -39,14 +63,14 @@ contract WETHPriceFeed is PriceFeedBase {
                
                // if prices are within deviation threshold, return chainlink price and set market price source to primary
                 if(primaryResponse.success && fallbackResponse.success && isWithinDeviationThreshold) {          
-                        _storeLastGoodMarketResponse(primaryResponse);
+                        _saveLastGoodResponse(primaryResponse);
                         _setMarketPriceSource(PriceSource.primaryOracle);
                         return primaryResponse.price;
                         // if prices are deviated, return max of the two
                 } else if(primaryResponse.success && fallbackResponse.success && !isWithinDeviationThreshold) {
                    bool returnPrimary = primaryResponse.price >= fallbackResponse.price ? true : false;
                    Response memory returnResponse = returnPrimary ? primaryResponse : fallbackResponse; 
-                    _storeLastGoodMarketResponse(returnResponse);
+                    _saveLastGoodResponse(returnResponse);
                     // if primary price is returned, set market price source to primary
                     if(returnPrimary) {
                         _setMarketPriceSource(PriceSource.primaryOracle);
@@ -54,22 +78,22 @@ contract WETHPriceFeed is PriceFeedBase {
                     // else keep using fallback
                     return returnResponse.price;
                 } else if(!primaryResponse.success && fallbackResponse.success) {
-                    _storeLastGoodMarketResponse(fallbackResponse);
+                    _saveLastGoodResponse(fallbackResponse);
                     _setMarketPriceSource(PriceSource.fallbackOracle);
                     return fallbackResponse.price;
                 } else if (primaryResponse.success && !fallbackResponse.success) {
-                    _storeLastGoodMarketResponse(primaryResponse);
+                    _saveLastGoodResponse(primaryResponse);
                     _setMarketPriceSource(PriceSource.primaryOracle);
                     return primaryResponse.price;
                 } else {
                     // if both are bad, set market price source to last good response
-                    _setMarketPriceSource(PriceSource.lastGoodResponse);
-                    return lastGoodMarketResponse.price;
+                    _shutdownAndSwitchToLastGoodResponse(FailureType.MARKET_ORACLE_FAILURE);
+                    return lastGoodResponse.price;
                 }
             }
             // Otherwise if branch is shut down and already using the lastGoodResponse, continue with it
             assert(marketPriceSource == PriceSource.lastGoodResponse);
-            return lastGoodMarketResponse.price;
+            return lastGoodResponse.price;
         }
 
     function _fetchPrimaryMarketOraclePrice() internal override returns (Response memory) {
@@ -79,6 +103,5 @@ contract WETHPriceFeed is PriceFeedBase {
     function _fetchFallbackMarketOraclePrice() internal override returns (Response memory) {
         return TellorParser.getResponse(fallbackMarketOracle.oracle, TELLOR_ETH_USD_QUERY_ID, fallbackMarketOracle.stalenessThreshold);
     }
-    
-    
+        
 }

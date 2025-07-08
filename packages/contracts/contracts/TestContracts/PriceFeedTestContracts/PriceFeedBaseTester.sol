@@ -26,7 +26,7 @@ contract PriceFeedBaseTester is PriceFeedBase {
         bool primaryIsGood = isGoodResponse(response, primaryMarketOracle.stalenessThreshold);
         if (primaryIsGood) {
             _setMarketPriceSource(PriceSource.primaryOracle);
-            _storeLastGoodMarketResponse(response);
+            _saveLastGoodResponse(response);
             return response.price;
         } else {
             _setMarketPriceSource(PriceSource.fallbackOracle);
@@ -34,7 +34,7 @@ contract PriceFeedBaseTester is PriceFeedBase {
             
             bool fallbackIsGood = isGoodResponse(fallbackResponse, fallbackMarketOracle.stalenessThreshold);
             if (fallbackIsGood) {
-                _storeLastGoodMarketResponse(fallbackResponse);
+                _saveLastGoodResponse(fallbackResponse);
                 return fallbackResponse.price;
             } else {
                 _setMarketPriceSource(PriceSource.lastGoodResponse);
@@ -75,8 +75,8 @@ contract PriceFeedBaseTester is PriceFeedBase {
         _setMarketPriceSource(_marketPriceSource);
     }
 
-    function storeLastGoodMarketResponse(Response memory _response) external {
-        _storeLastGoodMarketResponse(_response);
+    function saveLastGoodResponse(Response memory _response) external {
+        _saveLastGoodResponse(_response);
     }
     
     function withinDeviationThreshold(uint256 _priceToCheck, uint256 _referencePrice) external view returns (bool) {

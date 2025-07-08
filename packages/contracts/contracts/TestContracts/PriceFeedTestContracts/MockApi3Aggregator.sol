@@ -11,7 +11,7 @@ contract MockApi3Aggregator is IApi3ReaderProxy {
     int224 public price;
     uint32 public updateTime;
 
-    bool latestRevert;
+    bool revertRead;
     bool decimalsRevert;
 
     event PriceEmitted(int224 price, uint32 updateTime);
@@ -25,6 +25,13 @@ contract MockApi3Aggregator is IApi3ReaderProxy {
         price = _price;
     }
 
+    function setReadRevert(bool _revert) external {
+        revertRead = _revert;
+    }
+
+    function setDecimalsRevert(bool _revert) external {
+        decimalsRevert = _revert;
+    }
 
     function setUpdateTime(uint32 _updateTime) external  {
         updateTime = _updateTime;
@@ -34,7 +41,7 @@ contract MockApi3Aggregator is IApi3ReaderProxy {
     // --- Getters that adhere to the AggregatorV3 interface ---
 
     function decimals() external override view returns (uint8) {
-        if (decimalsRevert) {require(1== 0, "decimals reverted");}
+        if (decimalsRevert) {revert("decimals reverted");}
 
         return decimalsVal;
     }
@@ -51,7 +58,7 @@ contract MockApi3Aggregator is IApi3ReaderProxy {
         uint32 timestamp
     ) 
     {    
-        if (latestRevert) { require(1== 0, "read reverted");}
+        if (revertRead) { revert("read reverted");}
 
         return (price, updateTime); 
     }

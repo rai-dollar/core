@@ -6,22 +6,32 @@ import {PriceFeedBase} from "./PriceFeedBase.sol";
 import {LiquityMath} from "./Common/LiquityMath.sol";
 import {Constants as C} from "./Common/Constants.sol";
 
-
+// The CompositePriceFeed is used for feeds that incorporate both a market price oracle (e.g. STETH-USD, or RETH-ETH)
+// and an LST canonical rate (e.g. WSTETH:STETH, or RETH:ETH).
+// Possible states:
+// market oracle: primary or fallback
+// underlying asset price (eth/usd): primary or fallback
+// if priceSource = lastGoodResponse on any oracle, This means the primary and fallback have failed and this asset is in shut down.
+// market primary && underlying primary => Good rate
+// market primary && underlying fallback => Good rate
+// market fallback && underlying primary => Good rate
+// market fallback && underlying fallback => Good rate
+// market || underlying => lastGoodResponse => SHUTDOWN
+// Rate provider is either GOOD or Oracle is SHUT DOWN for composite feeds
 abstract contract CompositePriceFeedBase is PriceFeedBase {
     Oracle public primaryCompositeOracle;
     Oracle public fallbackCompositeOracle;
     
     address public rateProvider;
 
-    //last good response from the primary or fallback eth/usd oracle
-    Response public lastGoodCompositeResponse;
-
-    //where the eth/usd price is coming from: primaryOracle, fallbackOracle, or lastGoodResponse
+    // Determines where the PriceFeed sources data from. Possible states:
+    // - primary: Uses the primary price calcuation, which depends on the specific feed
+    // - fallback: Uses using the fallback oracle in case of primary oracle failure
+    // - lastGoodPrice: the price feed is shut down and will only return the last good price recorded
     PriceSource public compositePriceSource;
 
-    event CompositePriceFailed(address compositeOracle);
-    event CanonicalRateFailed(address rateProvider);
-    event LastGoodCompositeResponse(uint256 price, uint256 lastUpdated);
+    uint256 public compositeStalenessThreshold;
+
     event CompositePriceSourceChanged(PriceSource compositePriceSource, uint256 timestamp);
 
     constructor(
@@ -31,13 +41,15 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
         address _rateProvider,
         uint256 _deviationThreshold
         ) PriceFeedBase(_marketOracleConfig, _token, _deviationThreshold) {
-        rateProvider = _rateProvider;
-        primaryCompositeOracle.oracle = _ethUsdOracleConfig.primaryOracle;
-        primaryCompositeOracle.stalenessThreshold = _ethUsdOracleConfig.primaryStalenessThreshold;
-        fallbackCompositeOracle.oracle = _ethUsdOracleConfig.fallbackOracle;
-        fallbackCompositeOracle.stalenessThreshold = _ethUsdOracleConfig.fallbackStalenessThreshold;
-        compositePriceSource = PriceSource.primaryOracle;
-    }
+            rateProvider = _rateProvider;
+
+            primaryCompositeOracle.oracle = _ethUsdOracleConfig.primaryOracle;
+            primaryCompositeOracle.stalenessThreshold = _ethUsdOracleConfig.primaryStalenessThreshold;
+            fallbackCompositeOracle.oracle = _ethUsdOracleConfig.fallbackOracle;
+            fallbackCompositeOracle.stalenessThreshold = _ethUsdOracleConfig.fallbackStalenessThreshold;
+
+            compositePriceSource = PriceSource.primaryOracle;
+        }
     
 
     // --- Overrides ---
@@ -56,12 +68,14 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
 
     // --- Internal Functions ---
 
+    // use this function to get the response from the primary oracle and check if it is good to return correct success bool
     function _getPrimaryCompositeOracleResponse() internal returns (Response memory) {
         Response memory response = _fetchPrimaryCompositeOraclePrice();
         response.success = isGoodResponse(response, primaryCompositeOracle.stalenessThreshold);
         return response;
     }
 
+    // use this function to get the response from the fallback oracle and check if it is good to return correct success bool
     function _getFallbackCompositeOracleResponse() internal returns (Response memory) {
         Response memory response = _fetchFallbackCompositeOraclePrice();
         response.success = isGoodResponse(response, fallbackCompositeOracle.stalenessThreshold);
@@ -76,30 +90,21 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
         return fallbackCompositeOracle.oracle != address(0) && fallbackCompositeOracle.stalenessThreshold > 0;
     }
 
-    function _storeLastGoodCompositeResponse(Response memory _response) internal {
-        if (_response.success) {
-            lastGoodCompositeResponse = _response;
-            emit LastGoodCompositeResponse(_response.price, _response.lastUpdated);
-        }
-    }
-
     // if composite oracle is in shutdown state
     function _setCompositePriceSource(PriceSource _priceSource) internal virtual {
         if (compositePriceSource != _priceSource) {
             compositePriceSource = _priceSource;
             emit CompositePriceSourceChanged(compositePriceSource, block.timestamp);
-
-                if (_priceSource == PriceSource.lastGoodResponse) {
-                    _shutdownAndSwitchToLastGoodCompositeResponse();
-                }
         }
     }
 
-    function _shutdownAndSwitchToLastGoodCompositeResponse() internal virtual {
-        // TODO:include shutdown logic here
-        // set last good response to false to indicate that oracle response is not good
-        lastGoodCompositeResponse.success = false;
-        emit ShutdownInitiated("Composite Oracle Failure", block.timestamp);
+    function _shutdownAndSwitchToLastGoodResponse(FailureType _failureType) internal virtual override {
+        // set market and composite price source to last good response
+        lastGoodResponse.success = false;
+        _setMarketPriceSource(PriceSource.lastGoodResponse);
+        _setCompositePriceSource(PriceSource.lastGoodResponse); 
+
+        emit ShutdownInitiated(_failureType, block.timestamp);
     }
 
     function _getMaxRedemptionPrice(Response memory _stEthUsdPriceResponse, 

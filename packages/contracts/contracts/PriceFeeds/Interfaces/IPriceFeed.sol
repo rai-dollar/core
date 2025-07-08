@@ -9,6 +9,12 @@ interface IPriceFeed {
         lastGoodResponse
     }
 
+    enum FailureType {
+        MARKET_ORACLE_FAILURE,
+        COMPOSITE_ORACLE_FAILURE,
+        RATE_PROVIDER_FAILURE,
+        MULTIPLE_FEED_FAILURES
+    }
     struct Response {
         uint256 price;
         uint256 lastUpdated;
