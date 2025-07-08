@@ -33,7 +33,7 @@ contract MockApi3Aggregator is IApi3ReaderProxy {
         decimalsRevert = _revert;
     }
 
-    function setUpdateTime(uint32 _updateTime) external  {
+    function setTime(uint32 _updateTime) external  {
         updateTime = _updateTime;
     }
     

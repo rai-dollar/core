@@ -23,20 +23,20 @@ contract('WstEthFeedFork', async accounts => {
     // oracles used in the price feeds
     
     // deviation threshold for the price feeds - use ethers BigNumber instead of web3 toBN
-    const deviationThreshold = hre.ethers.BigNumber.from(dec(1, 16));  // 1%
+    const deviationThreshold = hre.ethers.utils.parseEther("0.01");  // 1%
 
     // staleness threshold for the price feeds
     const stalenessThreshold = {
         chainlink: TimeValues.SECONDS_IN_ONE_DAY,  // 24hr staleness
         api3: TimeValues.SECONDS_IN_ONE_DAY,  // 24hr staleness
         tellor: TimeValues.SECONDS_IN_ONE_DAY,  // 24hr staleness
+
     }
-    const oracleConfigType = "OracleConfig(address primaryOracle, address fallbackOracle, uint256 primaryStalenessThreshold, uint256 fallbackStalenessThreshold)";
     const stethMarketOracleConfig = {
         primaryOracle: chainlinkOracles.stEthUsd,
         fallbackOracle: hre.ethers.constants.AddressZero,
         primaryStalenessThreshold: stalenessThreshold.chainlink,
-        fallbackStalenessThreshold: stalenessThreshold.chainlink
+        fallbackStalenessThreshold: 0
     }
 
     const ethUsdOracleConfig = {
@@ -48,26 +48,31 @@ contract('WstEthFeedFork', async accounts => {
 
     let mockedMarketOracleConfig;
     let mockedEthUsdOracleConfig;
-
+    let mockChainlinkAggregator1;
+    let mockChainlinkAggregator2;
+    let mockApi3Aggregator;
     let wstEthPriceFeed;
     let mockedWstEthPriceFeed;
 
     before(async () => {
         const chainId = await hre.network.provider.send("eth_chainId");
+        const block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
         console.log("Chain ID:", parseInt(chainId, 16));
+        console.log("Block timestamp:", block.timestamp);
 
         const deployerWallet = (await ethers.getSigners())[0];
         const deployerWalletAddress = deployerWallet.address;
 
-        const MockWSTETHPriceFeedFactory = await ethers.getContractFactory("MockAggregator", deployerWallet);
+        const MockChainlinkAggregator = await ethers.getContractFactory("MockChainlinkAggregator", deployerWallet);
         const MockApi3Aggregator = await ethers.getContractFactory("MockApi3Aggregator", deployerWallet);
 
-        const mockMarketAggregator = await MockWSTETHPriceFeedFactory.deploy();
-        const mockEthAggregator = await MockApi3Aggregator.deploy();
+        mockChainlinkAggregator1 = await MockChainlinkAggregator.deploy();
+        mockChainlinkAggregator2 = await MockChainlinkAggregator.deploy();
+        mockApi3Aggregator = await MockApi3Aggregator.deploy();
         
         //create config for mocked market oracle
         mockedMarketOracleConfig = {
-            primaryOracle: mockMarketAggregator.address,
+            primaryOracle: mockChainlinkAggregator1.address,
             fallbackOracle: hre.ethers.constants.AddressZero,
             primaryStalenessThreshold: stalenessThreshold.chainlink,
             fallbackStalenessThreshold: stalenessThreshold.chainlink
@@ -75,38 +80,45 @@ contract('WstEthFeedFork', async accounts => {
 
         //create config for mocked eth usd oracle
         mockedEthUsdOracleConfig = {
-            primaryOracle: mockEthAggregator.address,
-            fallbackOracle: api3Oracles.ethUsd,
+            primaryOracle: mockChainlinkAggregator2.address,
+            fallbackOracle: mockApi3Aggregator.address,
             primaryStalenessThreshold: stalenessThreshold.api3,
             fallbackStalenessThreshold: stalenessThreshold.api3
         }
-        
 
-        console.log("Deploying WSTETHPriceFeed...");
         const WSTETHPriceFeedFactory = await ethers.getContractFactory("WSTETHPriceFeed", deployerWallet);
+
         // deploy price feeds
         wstEthPriceFeed = await WSTETHPriceFeedFactory.deploy(
             stethMarketOracleConfig,
             ethUsdOracleConfig,
             tokens.wsteth,
             tokens.wsteth,
-            deviationThreshold,
-            stalenessThreshold.chainlink
+            deviationThreshold
         )
+
+        // set mocked oracle prices and timestamps
+        await mockChainlinkAggregator1.setPrice(hre.ethers.utils.parseEther("1"));
+        await mockChainlinkAggregator1.setTime(block.timestamp);
+
+        await mockChainlinkAggregator2.setPrice(hre.ethers.utils.parseEther("2"));
+        await mockChainlinkAggregator2.setTime(block.timestamp);
+
+        await mockApi3Aggregator.setPrice(hre.ethers.utils.parseEther("3"));
+        await mockApi3Aggregator.setTime(block.timestamp);
 
         mockedWstEthPriceFeed = await WSTETHPriceFeedFactory.deploy(
             stethMarketOracleConfig,
             mockedEthUsdOracleConfig,
             tokens.wsteth,
             tokens.wsteth,
-            deviationThreshold,
-            stalenessThreshold.chainlink
+            deviationThreshold
         );
         console.log("WSTETHPriceFeed deployed at:", wstEthPriceFeed.address);
     })
 
     function getPriceWstEthUsdFromReceipt(receipt) {
-        const price = receipt.events.filter(event => event.event === "WstEthUsdResponseSaved")[0].args.price;
+        const price = receipt.events.filter(event => event.event === "LastGoodResponseUpdated")[0].args.price;
         return parseFloat(hre.ethers.utils.formatEther(price));
     }
     describe("WSTETHPriceFeed", () => {
@@ -120,12 +132,22 @@ contract('WstEthFeedFork', async accounts => {
             expect(price).to.be.greaterThan(0).and.lessThan(parseFloat(hre.ethers.utils.parseEther("5")));
         });
         
-        it("should use fallback oracle if primary oracle is stale", async () => {
+        it("should use eth/usd fallback oracle if primary oracle is stale", async () => {
+            await mockChainlinkAggregator2.setPrice(hre.ethers.utils.parseEther("0"));
+
             const tx = await mockedWstEthPriceFeed.fetchPrice(false);
             const receipt = await tx.wait();
-            console.log("receipt", receipt);
             const price = getPriceWstEthUsdFromReceipt(receipt);
-            expect(price).to.be.greaterThan(0).and.lessThan(parseFloat(hre.ethers.utils.parseEther("5")));
+
+            const compositeOracleSource = await mockedWstEthPriceFeed.compositePriceSource();
+            const marketOracleSource = await mockedWstEthPriceFeed.marketPriceSource();
+            const wethUsdOracleSource = await mockedWstEthPriceFeed.wethUsdPriceSource();
+
+            expect(price).to.equal(parseFloat(("3.6228712336164346")));
+
+            expect(compositeOracleSource).to.equal(1);
+            expect(marketOracleSource).to.equal(0);
+            expect(wethUsdOracleSource).to.equal(0);
         });
 
     })

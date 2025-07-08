@@ -40,7 +40,7 @@ contract MockChainlinkAggregator is AggregatorV3Interface {
         prevUpdateTime = _prevUpdateTime;
     }
 
-    function setUpdateTime(uint _updateTime) external  {
+    function setTime(uint _updateTime) external  {
         updateTime = _updateTime;
     }
 

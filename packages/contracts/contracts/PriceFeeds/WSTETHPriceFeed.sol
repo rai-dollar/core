@@ -29,49 +29,36 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
     address _rateProvider, 
     uint256 _deviationThreshold
     ) CompositePriceFeedBase(_marketOracleConfig, _ethUsdOracleConfig, _token, _rateProvider, _deviationThreshold) {
-    // ensure primary market oracle is set
-    if(!_marketPrimaryIsSet()) {
-        revert("Primary market oracle must be set");
-    }
+        // ensure deviation threshold is valid
+        if(_deviationThreshold == 0) {
+            revert("Invalid deviation threshold");
+        }
 
-    // ensure composite primary oracle is set
-    if(!_compositePrimaryIsSet()) {
-        revert("Eth usd primary oracle must be set");
-    }
+        // ensure valid initial settings
+        Response memory primaryMarketResponse = _getPrimaryMarketOracleResponse();
+        Response memory primaryCompositeResponse = _getPrimaryCompositeOracleResponse();
+        Response memory fallbackCompositeResponse = _getFallbackCompositeOracleResponse();
+        Response memory canonicalRateResponse = _fetchCanonicalRate();
 
-    // ensure composite fallback oracle is set
-    if(!_compositeFallbackIsSet()) {
-        revert("Eth usd fallback oracle must be set");
-    }
 
-    // ensure deviation threshold is valid
-    if(_deviationThreshold == 0) {
-        revert("Invalid deviation threshold");
-    }
 
-    // ensure valid initial settings
-    Response memory primaryMarketResponse = _getPrimaryMarketOracleResponse();
-    Response memory primaryCompositeResponse = _getPrimaryCompositeOracleResponse();
-    Response memory fallbackCompositeResponse = _getFallbackCompositeOracleResponse();
-    Response memory canonicalRateResponse = _fetchCanonicalRate();
-    
-    if(
-        primaryMarketResponse.success &&
-        primaryCompositeResponse.success &&
-        fallbackCompositeResponse.success &&
-        canonicalRateResponse.success
-           ) {
-        Response memory wstEthUsdResponse = _fetchWstEthUsdResponse(false);
+        if(
+            primaryMarketResponse.success &&
+            primaryCompositeResponse.success &&
+            fallbackCompositeResponse.success &&
+            canonicalRateResponse.success
+            ) {
                 
-        _setMarketPriceSource(PriceSource.primaryOracle);
-        _setCompositePriceSource(PriceSource.primaryOracle);
-        _setWethUsdPriceSource(PriceSource.primaryOracle);
+            _setMarketPriceSource(PriceSource.primaryOracle);
+            _setCompositePriceSource(PriceSource.primaryOracle);
+            _setWethUsdPriceSource(PriceSource.primaryOracle);
 
-        _saveLastGoodResponse(wstEthUsdResponse);
-    } else {
-        revert("Invalid oracle configuration");
-    }
-
+            Response memory wstEthUsdResponse = _fetchWstEthUsdResponse(false);
+                    
+            _saveLastGoodResponse(wstEthUsdResponse);
+        } else {
+            revert("Invalid oracle configuration");
+        }
    }
 
 
@@ -173,7 +160,7 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
     }
 
     
-    // since we are using a fallback eth/usd oracle, we need to add logic to handle the fallback oracle
+    // since we are using a fallback eth/usd oracle, we have logic to handle the primary or fallback oracle usage
     function _fetchEthUsdPrice() internal returns (Response memory) {
         if(compositePriceSource == PriceSource.primaryOracle) {
             // fetch ethUsdPrice from primary oracle
@@ -220,44 +207,47 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
                 ethUsdPriceResponse : ethUsdPriceResponseFallback;
 
                 return ethUsdPriceResponse;
-            // if not within the deviation threshold but both price feeds are good, keep using fallback until prices are within the deviation threshold
+           // if not within the deviation threshold but both price feeds are good, keep using fallback until prices are within the deviation threshold
            } else if (ethUsdPriceResponse.success && ethUsdPriceResponseFallback.success && !withinDeviationThreshold) {
                 return ethUsdPriceResponseFallback;
+           // if fallback is good and primary is not, keep price source as fallback and return fallback response
            } else if(!ethUsdPriceResponse.success && ethUsdPriceResponseFallback.success) {
-                // if fallback is good and primary is not, keep price source as fallback and return fallback response
                 return ethUsdPriceResponseFallback;
+           // if primary is good and fallback is not, set price source to primary and return primary response
            } else if(ethUsdPriceResponse.success && !ethUsdPriceResponseFallback.success) {
-                // if primary is good and fallback is not, set price source to primary and return primary response
                 _setCompositePriceSource(PriceSource.primaryOracle);
                 return ethUsdPriceResponse;
-           } else {
                 // if both are not good, shut down price feed and return an empty response with no value and success false
+           } else {
                 _shutdownAndSwitchToLastGoodResponse(FailureType.COMPOSITE_ORACLE_FAILURE);
                 Response memory emptyResponse;
                 return emptyResponse;
            }
         } 
 
+        // if the composite price feed is shutdown return an empty response with no value and success false
         assert(compositePriceSource == PriceSource.lastGoodResponse);
-        // return an empty Response to indicate a failure
         Response memory emptyResponse;
         return emptyResponse;
     }
 
     // --- Oracle Overrides ---
-
+    // using chainlink for primary market oracle
     function _fetchPrimaryMarketOraclePrice() internal view override returns (Response memory) {
         return ChainlinkParser.getResponse(primaryMarketOracle.oracle);
     }
 
+    // no fallback market oracle for wsteth/usd
     function _fetchFallbackMarketOraclePrice() internal view override returns (Response memory) {
         revert ("Fallback market oracle not supported");
     }
 
+    // using chainlink for primary composite oracle
     function _fetchPrimaryCompositeOraclePrice() internal view override returns (Response memory) {
         return ChainlinkParser.getResponse(primaryCompositeOracle.oracle);
     }
 
+    // using api3 for fallback composite oracle
     function _fetchFallbackCompositeOraclePrice() internal view override returns (Response memory) {
         return Api3Parser.getResponse(fallbackCompositeOracle.oracle);
     }

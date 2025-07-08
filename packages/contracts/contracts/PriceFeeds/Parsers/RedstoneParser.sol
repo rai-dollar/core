@@ -40,7 +40,7 @@ library RedstoneParser {
             response.success = response.lastUpdated != 0 && response.price != 0;
 
         } catch {
-            // Require that enough gas was provided to prevent an OOG revert in the call to Chainlink
+            // Require that enough gas was provided to prevent an OOG revert in the call to Redstone
             // causing a shutdown. Instead, just revert. Slightly conservative, as it includes gas used
             // in the check itself.
             if (gasleft() <= gasBefore / 64) revert IPriceFeed.InsufficientGasForExternalCall();

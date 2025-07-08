@@ -36,18 +36,20 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
 
     constructor(
         OracleConfig memory _marketOracleConfig,
-        OracleConfig memory _ethUsdOracleConfig,
+        OracleConfig memory _compositeOracleConfig,
         address _token, 
         address _rateProvider,
         uint256 _deviationThreshold
         ) PriceFeedBase(_marketOracleConfig, _token, _deviationThreshold) {
+            
             rateProvider = _rateProvider;
 
-            primaryCompositeOracle.oracle = _ethUsdOracleConfig.primaryOracle;
-            primaryCompositeOracle.stalenessThreshold = _ethUsdOracleConfig.primaryStalenessThreshold;
-            fallbackCompositeOracle.oracle = _ethUsdOracleConfig.fallbackOracle;
-            fallbackCompositeOracle.stalenessThreshold = _ethUsdOracleConfig.fallbackStalenessThreshold;
+            primaryCompositeOracle.oracle = _compositeOracleConfig.primaryOracle;
+            primaryCompositeOracle.stalenessThreshold = _compositeOracleConfig.primaryStalenessThreshold;
 
+            fallbackCompositeOracle.oracle = _compositeOracleConfig.fallbackOracle;
+            fallbackCompositeOracle.stalenessThreshold = _compositeOracleConfig.fallbackStalenessThreshold;
+           
             compositePriceSource = PriceSource.primaryOracle;
         }
     
