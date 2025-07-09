@@ -9,6 +9,10 @@ interface IPriceFeed {
         lastGoodResponse
     }
 
+    enum OracleType {
+        Market,
+        Composite
+    }
     enum FailureType {
         MARKET_ORACLE_FAILURE,
         COMPOSITE_ORACLE_FAILURE,

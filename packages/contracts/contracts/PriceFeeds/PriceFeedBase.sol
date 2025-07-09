@@ -32,6 +32,7 @@ abstract contract PriceFeedBase is IPriceFeed {
     event MarketPriceSourceChanged(PriceSource marketPriceSource);
     event LastGoodResponseUpdated(uint256 price, uint256 lastUpdated);
     event ShutdownInitiated(FailureType failureType, uint256 timestamp);
+    event MarketOracleFailure(address oracle, uint256 timestamp);
     
     constructor(OracleConfig memory _marketOracleConfig, address _token, uint256 _deviationThreshold) {
         primaryMarketOracle.oracle = _marketOracleConfig.primaryOracle;
@@ -60,6 +61,49 @@ abstract contract PriceFeedBase is IPriceFeed {
 
 
     // --- Functions ---
+
+    // this function is used to fetch the market price with failover logic to use a fallback oracle and restore primary oracle in the case of a primary oracle failure
+    function _fetchMarketPriceWithFallback(OracleType _oracleType) internal returns (Response memory) {
+            if(marketPriceSource == PriceSource.primaryOracle) {
+            // fetch ethUsdPrice from primary oracle
+            Response memory primaryMarketResponse = _getPrimaryMarketOracleResponse();
+
+            // if the primary ethUsdPrice is good, return it
+            if (primaryMarketResponse.success) {
+                return primaryMarketResponse;
+            } else {
+                // if the ethUsdPrice is not good, check if the fallback oracle is good
+                Response memory fallbackMarketResponse = _getFallbackMarketOracleResponse();
+                // if the fallback ethUsdPrice is good, set price source to fallback and return it
+                if (fallbackMarketResponse.success) {
+                    _setMarketPriceSource(PriceSource.fallbackOracle);
+                    return fallbackMarketResponse;
+                } else {
+                    emit MarketOracleFailure(address(this), block.timestamp);
+                    Response memory emptyResponse;
+                    return emptyResponse;
+                }
+            }
+        } 
+        
+        // if fallback is being used
+        if (marketPriceSource == PriceSource.fallbackOracle) {
+           Response memory fallbackMarketResponse = _getFallbackMarketOracleResponse();
+           Response memory primaryMarketResponse = _getPrimaryMarketOracleResponse();
+           
+           (Response memory fallbackRecoveryResponse, PriceSource fallbackRecoveryPriceSource) = 
+                _attemptFallbackRecovery(primaryMarketResponse, fallbackMarketResponse, deviationThreshold);
+                
+           _setMarketPriceSource(fallbackRecoveryPriceSource);
+
+           if (!fallbackRecoveryResponse.success) {
+                emit MarketOracleFailure(address(this), block.timestamp);
+           }
+
+           return fallbackRecoveryResponse;
+        }
+    }
+
     function _getPrimaryMarketOracleResponse() internal returns (Response memory) {
            Response memory response = _fetchPrimaryMarketOraclePrice();
 
@@ -82,6 +126,41 @@ abstract contract PriceFeedBase is IPriceFeed {
 
     function _marketFallbackIsSet() internal view returns (bool) {
         return fallbackMarketOracle.oracle != address(0) && fallbackMarketOracle.stalenessThreshold > 0;
+    }
+
+
+    function _attemptFallbackRecovery(Response memory _primaryResponse, Response memory _fallbackResponse, uint256 _deviationThreshold) internal returns (Response memory, PriceSource) {
+              // check primary and fallback deviation
+           bool withinDeviationThreshold = _withinDeviationThreshold(
+                _primaryResponse.price,
+                _fallbackResponse.price,
+                deviationThreshold);
+
+           // if primary oracle is now good and fallback is good set composite price source to primary
+           // and return max of the two responses
+           if (_primaryResponse.success && _fallbackResponse.success && withinDeviationThreshold) {
+                // return the max of the two responses
+                Response memory ethUsdPriceResponse = _primaryResponse.price > _fallbackResponse.price ?
+                _primaryResponse : _fallbackResponse;
+
+                return (_primaryResponse, PriceSource.primaryOracle);
+           // if not within the deviation threshold but both price feeds are good, keep using fallback until prices are within the deviation threshold
+           } else if (_primaryResponse.success && _fallbackResponse.success && !withinDeviationThreshold) {
+                return (_fallbackResponse, PriceSource.fallbackOracle);
+
+           // if fallback is good and primary is not, keep price source as fallback and return fallback response
+           } else if(!_primaryResponse.success && _fallbackResponse.success) {
+                return (_fallbackResponse, PriceSource.fallbackOracle);
+
+           // if primary is good and fallback is not, set price source to primary and return primary response
+           } else if(_primaryResponse.success && !_fallbackResponse.success) {
+                return (_primaryResponse, PriceSource.primaryOracle);
+
+           // if both are not good, return an empty response with no value and success false
+           } else {
+                Response memory emptyResponse;
+                return (emptyResponse, PriceSource.lastGoodResponse);
+           }
     }
 
     function isGoodResponse(IPriceFeed.Response memory _response, uint256 _staleThreshold) public view returns (bool) {

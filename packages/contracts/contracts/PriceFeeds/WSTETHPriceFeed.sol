@@ -81,7 +81,7 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
         // since we are using only one steth/usd oracle, we can use the only primary market oracle response
         Response memory stEthUsdPriceResponse = _getPrimaryMarketOracleResponse();
 
-        Response memory ethUsdPriceResponse = _fetchEthUsdPrice();
+        Response memory ethUsdPriceResponse = _fetchCompositePriceWithFallback();
         Response memory stethPerWstethResponse = _fetchCanonicalRate();
 
         //if canonical rate fails or eth/usd is not good, shutdown everything
@@ -157,78 +157,6 @@ contract WSTETHPriceFeed is CompositePriceFeedBase {
         tokenXCanonicalRateResponse.success = tokenXCanonicalRateResponse.price != 0;
         tokenXCanonicalRateResponse.lastUpdated = _tokenPriceResponse.lastUpdated;
         return tokenXCanonicalRateResponse;
-    }
-
-    
-    // since we are using a fallback eth/usd oracle, we have logic to handle the primary or fallback oracle usage
-    function _fetchEthUsdPrice() internal returns (Response memory) {
-        if(compositePriceSource == PriceSource.primaryOracle) {
-            // fetch ethUsdPrice from primary oracle
-            Response memory ethUsdPriceResponse = _getPrimaryCompositeOracleResponse();
-
-            // if the primary ethUsdPrice is good, return it
-            if (ethUsdPriceResponse.success) {
-                return ethUsdPriceResponse;
-            } else {
-                // if the ethUsdPrice is not good, check if the fallback oracle is good
-                Response memory ethUsdPriceResponseFallback = _getFallbackCompositeOracleResponse();
-                // if the fallback ethUsdPrice is good, set price source to fallback and return it
-                if (ethUsdPriceResponseFallback.success) {
-                    _setCompositePriceSource(PriceSource.fallbackOracle);
-                    return ethUsdPriceResponseFallback;
-                    
-                } else {
-                     // if the fallback ethUsdPrice is not good, shut down price feed and return
-                     // an empty response with no value and success false
-                    _shutdownAndSwitchToLastGoodResponse(FailureType.COMPOSITE_ORACLE_FAILURE);
-                    Response memory emptyResponse;
-                    return emptyResponse;
-                }
-            }
-        } 
-        
-        // if fallback is being used
-        if (compositePriceSource == PriceSource.fallbackOracle) {
-           Response memory ethUsdPriceResponseFallback = _getFallbackCompositeOracleResponse();
-           Response memory ethUsdPriceResponse = _getPrimaryCompositeOracleResponse();
-           
-           // check primary and fallback deviation
-           bool withinDeviationThreshold = _withinDeviationThreshold(
-                ethUsdPriceResponse.price,
-                ethUsdPriceResponseFallback.price,
-                deviationThreshold);
-
-           // if primary oracle is now good and fallback is good set composite price source to primary
-           // and return max of the two responses
-           if (ethUsdPriceResponse.success && ethUsdPriceResponseFallback.success && withinDeviationThreshold) {
-                _setCompositePriceSource(PriceSource.primaryOracle);
-                // return the max of the two responses
-                Response memory ethUsdPriceResponse = ethUsdPriceResponse.price > ethUsdPriceResponseFallback.price ?
-                ethUsdPriceResponse : ethUsdPriceResponseFallback;
-
-                return ethUsdPriceResponse;
-           // if not within the deviation threshold but both price feeds are good, keep using fallback until prices are within the deviation threshold
-           } else if (ethUsdPriceResponse.success && ethUsdPriceResponseFallback.success && !withinDeviationThreshold) {
-                return ethUsdPriceResponseFallback;
-           // if fallback is good and primary is not, keep price source as fallback and return fallback response
-           } else if(!ethUsdPriceResponse.success && ethUsdPriceResponseFallback.success) {
-                return ethUsdPriceResponseFallback;
-           // if primary is good and fallback is not, set price source to primary and return primary response
-           } else if(ethUsdPriceResponse.success && !ethUsdPriceResponseFallback.success) {
-                _setCompositePriceSource(PriceSource.primaryOracle);
-                return ethUsdPriceResponse;
-                // if both are not good, shut down price feed and return an empty response with no value and success false
-           } else {
-                _shutdownAndSwitchToLastGoodResponse(FailureType.COMPOSITE_ORACLE_FAILURE);
-                Response memory emptyResponse;
-                return emptyResponse;
-           }
-        } 
-
-        // if the composite price feed is shutdown return an empty response with no value and success false
-        assert(compositePriceSource == PriceSource.lastGoodResponse);
-        Response memory emptyResponse;
-        return emptyResponse;
     }
 
     // --- Oracle Overrides ---

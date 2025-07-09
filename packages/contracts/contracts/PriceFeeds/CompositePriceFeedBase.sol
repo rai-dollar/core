@@ -33,7 +33,8 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
     uint256 public compositeStalenessThreshold;
 
     event CompositePriceSourceChanged(PriceSource compositePriceSource, uint256 timestamp);
-
+    event CompositeOracleFailure(address oracle, uint256 timestamp);
+    
     constructor(
         OracleConfig memory _marketOracleConfig,
         OracleConfig memory _compositeOracleConfig,
@@ -69,6 +70,52 @@ abstract contract CompositePriceFeedBase is PriceFeedBase {
 
 
     // --- Internal Functions ---
+    // this function is used to fetch the composite price with failover logic to use a fallback oracle
+    // and restore primary oracle in the case of a primary oracle failure
+    function _fetchCompositePriceWithFallback() internal returns (Response memory) {
+
+            if(compositePriceSource == PriceSource.primaryOracle) {
+            // fetch ethUsdPrice from primary oracle
+            Response memory primaryCompositeResponse = _getPrimaryCompositeOracleResponse();
+
+            // if the primary ethUsdPrice is good, return it
+            if (primaryCompositeResponse.success) {
+                return primaryCompositeResponse;
+            } else {
+                // if the ethUsdPrice is not good, check if the fallback oracle is good
+                Response memory fallbackCompositeResponse = _getFallbackCompositeOracleResponse();
+                // if the fallback ethUsdPrice is good, set price source to fallback and return it
+                if (fallbackCompositeResponse.success) {
+                    _setCompositePriceSource(PriceSource.fallbackOracle);
+                    return fallbackCompositeResponse;
+                } else {
+                    emit CompositeOracleFailure(address(this), block.timestamp);
+                    Response memory emptyResponse;
+                    return emptyResponse;
+                }
+            }
+        } 
+
+        // if fallback is being used
+        if (compositePriceSource == PriceSource.fallbackOracle) {
+           Response memory fallbackCompositeResponse = _getFallbackCompositeOracleResponse();
+           Response memory primaryCompositeResponse = _getPrimaryCompositeOracleResponse();
+
+           // attempt to recover to primary oracle if possible
+           (Response memory fallbackRecoveryResponse, PriceSource fallbackRecoveryPriceSource) =
+                _attemptFallbackRecovery(primaryCompositeResponse, fallbackCompositeResponse, deviationThreshold);
+
+           // set the composite price source to the return price source and return recovery response
+           _setCompositePriceSource(fallbackRecoveryPriceSource);
+
+            // if fallback recovery failed, it means both the primary and fallback oracles are down
+           if (!fallbackRecoveryResponse.success) {
+                emit CompositeOracleFailure(address(this), block.timestamp);
+           }
+
+           return fallbackRecoveryResponse;
+        }
+    }
 
     // use this function to get the response from the primary oracle and check if it is good to return correct success bool
     function _getPrimaryCompositeOracleResponse() internal returns (Response memory) {
