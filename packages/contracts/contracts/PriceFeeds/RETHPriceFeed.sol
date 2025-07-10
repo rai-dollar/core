@@ -3,10 +3,9 @@
 pragma solidity 0.8.24;
 
 import "./CompositePriceFeed.sol";
-import "../Interfaces/IRETHToken.sol";
-import "../Interfaces/IRETHPriceFeed.sol";
+import "./Interfaces/IRETHToken.sol";
+import "./Interfaces/IRETHPriceFeed.sol";
 
-// import "forge-std/console2.sol";
 
 contract RETHPriceFeed is CompositePriceFeed, IRETHPriceFeed {
     constructor(
@@ -14,10 +13,10 @@ contract RETHPriceFeed is CompositePriceFeed, IRETHPriceFeed {
         address _rEthEthOracleAddress,
         address _rEthTokenAddress,
         uint256 _ethUsdStalenessThreshold,
-        uint256 _rEthEthStalenessThreshold,
-        address _borrowerOperationsAddress
+        uint256 _rEthEthStalenessThreshold /*,
+        address _borrowerOperationsAddress*/
     )
-        CompositePriceFeed(_ethUsdOracleAddress, _rEthTokenAddress, _ethUsdStalenessThreshold, _borrowerOperationsAddress)
+        CompositePriceFeed(_ethUsdOracleAddress, _rEthTokenAddress, _ethUsdStalenessThreshold /*, _borrowerOperationsAddress*/)
     {
         // Store RETH-ETH oracle
         rEthEthOracle.aggregator = AggregatorV3Interface(_rEthEthOracleAddress);

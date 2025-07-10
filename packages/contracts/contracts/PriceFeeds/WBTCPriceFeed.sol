@@ -11,13 +11,12 @@ contract WBTCPriceFeed is CompositePriceFeed {
 
     uint256 public constant WBTC_BTC_DEVIATION_THRESHOLD = 2e16; // 2%
 
-    constructor(
-        address _owner, 
+    constructor( 
         address _wbtcUsdOracleAddress, 
         address _btcUsdOracleAddress,
         uint256 _wbtcUsdStalenessThreshold,
         uint256 _btcUsdStalenessThreshold
-    ) CompositePriceFeed(_owner, _wbtcUsdOracleAddress, _btcUsdOracleAddress, _wbtcUsdStalenessThreshold)
+    ) CompositePriceFeed(_wbtcUsdOracleAddress, _btcUsdOracleAddress, _wbtcUsdStalenessThreshold)
     {
         // Store BTC-USD oracle
         btcUsdOracle.aggregator = AggregatorV3Interface(_btcUsdOracleAddress);

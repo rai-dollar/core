@@ -2,7 +2,7 @@
 
 pragma solidity 0.8.24;
 
-import "../Dependencies/LiquityMath.sol";
+import "../v0.8.24/Dependencies/LiquityMath.sol";
 import "./MainnetPriceFeedBase.sol";
 
 // import "forge-std/console2.sol";
@@ -15,9 +15,9 @@ abstract contract CompositePriceFeed is MainnetPriceFeedBase {
     constructor(
         address _ethUsdOracleAddress,
         address _rateProviderAddress,
-        uint256 _ethUsdStalenessThreshold,
-        address _borrowerOperationsAddress
-    ) MainnetPriceFeedBase(_ethUsdOracleAddress, _ethUsdStalenessThreshold, _borrowerOperationsAddress) {
+        uint256 _ethUsdStalenessThreshold /*,
+        address _borrowerOperationsAddress*/
+    ) MainnetPriceFeedBase(_ethUsdOracleAddress, _ethUsdStalenessThreshold /*, _borrowerOperationsAddress*/) {
         // Store rate provider
         rateProviderAddress = _rateProviderAddress;
     }
@@ -46,7 +46,7 @@ abstract contract CompositePriceFeed is MainnetPriceFeedBase {
         returns (uint256)
     {
         // Shut down the branch
-        borrowerOperations.shutdownFromOracleFailure();
+        // borrowerOperations.shutdownFromOracleFailure();
 
         priceSource = PriceSource.ETHUSDxCanonical;
 

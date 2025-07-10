@@ -3,10 +3,8 @@
 pragma solidity 0.8.24;
 
 import "./CompositePriceFeed.sol";
-import "../Interfaces/IWSTETH.sol";
-import "../Interfaces/IWSTETHPriceFeed.sol";
-
-// import "forge-std/console2.sol";
+import "./Interfaces/IWSTETH.sol";
+import "./Interfaces/IWSTETHPriceFeed.sol";
 
 contract WSTETHPriceFeed is CompositePriceFeed, IWSTETHPriceFeed {
     Oracle public stEthUsdOracle;
@@ -18,10 +16,10 @@ contract WSTETHPriceFeed is CompositePriceFeed, IWSTETHPriceFeed {
         address _stEthUsdOracleAddress,
         address _wstEthTokenAddress,
         uint256 _ethUsdStalenessThreshold,
-        uint256 _stEthUsdStalenessThreshold,
-        address _borrowerOperationsAddress
+        uint256 _stEthUsdStalenessThreshold /*,
+        address _borrowerOperationsAddress*/
     )
-        CompositePriceFeed(_ethUsdOracleAddress, _wstEthTokenAddress, _ethUsdStalenessThreshold, _borrowerOperationsAddress)
+        CompositePriceFeed(_ethUsdOracleAddress, _wstEthTokenAddress, _ethUsdStalenessThreshold /*, _borrowerOperationsAddress*/)
     {
         stEthUsdOracle.aggregator = AggregatorV3Interface(_stEthUsdOracleAddress);
         stEthUsdOracle.stalenessThreshold = _stEthUsdStalenessThreshold;
