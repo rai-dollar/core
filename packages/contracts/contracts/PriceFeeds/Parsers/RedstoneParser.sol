@@ -47,19 +47,16 @@ library RedstoneParser {
             response.success = false;
         }
 
-        if(redstoneResponse.answer <= 0) {
-            revert InvalidRedstoneResponse();
-        }
-
-        // cast int response to uint256 a negative value will have reverted
-        response.price = uint256(redstoneResponse.answer);
-        response.lastUpdated = redstoneResponse.updatedAt;
-        response.success = true;
-
         return response;
     }
 
     function _convertDecimals(int256 _answer, uint8 _decimals) internal pure returns (uint256) {
+        
+        if(_answer < 0) {
+            revert InvalidRedstoneResponse();
+        }
+        
+        // cast int response to uint256 a negative value will have reverted none of our assets should ever return a negative price
         return uint256(_answer) * 10 ** (18 - _decimals);
     }
 
