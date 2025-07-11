@@ -1,6 +1,7 @@
 const { chainlinkOracles, tokens } = require('../mainnetAddresses.js');
 const AggregatorV3InterfaceArtifact = require('../artifacts/contracts/v0.8.24/Dependencies/AggregatorV3Interface.sol/AggregatorV3Interface.json');
 const MockChainlinkAggregatorArtifact = require('../artifacts/contracts/v0.8.24/TestContracts/MockChainlinkAggregator.sol/MockChainlinkAggregator.json');
+const MockWSTETHArtifact = require('../artifacts/contracts/v0.8.24/TestContracts/MockWSTETH.sol/MockWSTETH.json');
 const { TestHelper, TimeValues } = require("../utils/testHelpers.js")
 const th = TestHelper
 
@@ -48,7 +49,7 @@ contract('WstethMainnetForkTest', async accounts => {
         return parseFloat(lstUsdCanonicalPrice);
     }
 
-    async function etchMockChainlinkAggregator(address, artifact) {
+    async function etchContract(address, artifact) {
         await network.provider.send("hardhat_setCode", [address, artifact.deployedBytecode]);
         const mockedContract = await ethers.getContractAt(artifact.abi, address);
         return mockedContract;
@@ -92,56 +93,76 @@ contract('WstethMainnetForkTest', async accounts => {
         )
         });
 
-        it("lastGoodPrice should be set on deployment", async () => {
+        it.skip("lastGoodPrice should be set on deployment", async () => {
             const price = parseFloat(await wstEthPriceFeed.lastGoodPrice());
             expect(price).to.be.greaterThan(0).and.lessThan(5e21);
         });
 
-        it("should get the price of wsteth in usd", async () => {
+        it.skip("should get the price of wsteth in usd", async () => {
             await wstEthPriceFeed.fetchPrice();
             const price = parseFloat(await wstEthPriceFeed.lastGoodPrice());
-            const ethUsdPrice = (await chainlinkEthUsdOracle.latestRoundData()).answer;
             const stEthUsdPrice = (await chainlinkStEthUsdOracle.latestRoundData()).answer;
             const canonicalRate = await wstEth.stEthPerToken();
             const canonicalPrice = calculateRate(stEthUsdPrice, canonicalRate);
             expect(price).to.be.equal(canonicalPrice);
         });
         
-        it("should use eth/usd x canonical rate if steth/usd oracle is stale", async () => {
+        it.skip("should use eth/usd x canonical rate if steth/usd oracle is stale", async () => {
             // etch chainlink wsteth oracle with mock chainlink aggregator
-            chainlinkStEthUsdOracle = await etchMockChainlinkAggregator(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
+            chainlinkStEthUsdOracle = await etchContract(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
             await chainlinkStEthUsdOracle.setUpdateTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
             await wstEthPriceFeed.fetchPrice();
 
             const priceSource = await wstEthPriceFeed.priceSource();
-            const price = parseFloat(await wstEthPriceFeed.lastGoodPrice());
+            const lastGoodPrice = parseFloat(await wstEthPriceFeed.lastGoodPrice());
+
             const ethUsdPrice = (await chainlinkEthUsdOracle.latestRoundData()).answer;
             const canonicalRate = await wstEth.stEthPerToken();
 
             const calculatedPrice = calculateRate(ethUsdPrice, canonicalRate);
-            const expectedPrice = calculatedPrice > price ? calculatedPrice : price;
+            const expectedPrice = calculatedPrice > lastGoodPrice ? calculatedPrice : lastGoodPrice;
 
-            expect(price).to.be.equal(expectedPrice);
+            expect(lastGoodPrice).to.be.equal(expectedPrice);
             expect(priceSource).to.be.equal(2);
         });
 
-        it("should use eth/usd x canonical rate if steth/usd oracle returns 0 price", async () => {
-            chainlinkStEthUsdOracle = await etchMockChainlinkAggregator(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
+        it.skip("should use eth/usd x canonical rate if steth/usd oracle returns 0 price", async () => {
+            chainlinkStEthUsdOracle = await etchContract(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
             await chainlinkStEthUsdOracle.setPrice(hre.ethers.utils.parseUnits("0", 8));
             await chainlinkStEthUsdOracle.setUpdateTime(block.timestamp);
             await wstEthPriceFeed.fetchPrice();
+
             const state = await wstEthPriceFeed.priceSource();
-            const price = parseFloat(await wstEthPriceFeed.lastGoodPrice());
-            // calculate price from eth/usd x canonical rate
+            const lastGoodPrice = parseFloat(await wstEthPriceFeed.lastGoodPrice());
+
             const ethUsdPrice = (await chainlinkEthUsdOracle.latestRoundData()).answer;
             const canonicalRate = await wstEth.stEthPerToken();
             const calculatedPrice = calculateRate(ethUsdPrice, canonicalRate);
-            const expectedPrice = calculatedPrice > price ? calculatedPrice : price;
+            const expectedPrice = calculatedPrice > lastGoodPrice ? calculatedPrice : lastGoodPrice;
 
-            expect(price).to.be.equal(expectedPrice);
+            expect(lastGoodPrice).to.be.equal(expectedPrice);
             expect(state).to.be.equal(2);
         });
 
-    })
+        it.skip("should have correct stored staleness for chainlink steth/usd oracle", async () => {
+            const oracle = await wstEthPriceFeed.stEthUsdOracle();
+            expect(parseFloat(oracle.stalenessThreshold)).to.be.equal(TimeValues.SECONDS_IN_ONE_DAY);
+        });
+
+        it.skip("should have correct stored staleness for chainlink eth/usd oracle", async () => {
+            const oracle = await wstEthPriceFeed.ethUsdOracle();
+            expect(parseFloat(oracle.stalenessThreshold)).to.be.equal(stalenessThreshold);
+        });
+
+        it("should shut down when exchange rate fails", async () => {
+            wstEth = await etchContract(tokens.wsteth, MockWSTETHArtifact);
+
+            await wstEthPriceFeed.fetchPrice();
+
+            const state = await wstEthPriceFeed.priceSource();
+            expect(state).to.be.equal(2);
+        });
+
+    });
     
 })

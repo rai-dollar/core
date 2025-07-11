@@ -3,8 +3,8 @@
 pragma solidity 0.8.24;
 
 import "./CompositePriceFeed.sol";
-import "./Interfaces/IWSTETH.sol";
-import "./Interfaces/IWSTETHPriceFeed.sol";
+import "../v0.8.24/Interfaces/IWSTETH.sol";
+import "../v0.8.24/Interfaces/IWSTETHPriceFeed.sol";
 
 contract WSTETHPriceFeed is CompositePriceFeed, IWSTETHPriceFeed {
     Oracle public stEthUsdOracle;

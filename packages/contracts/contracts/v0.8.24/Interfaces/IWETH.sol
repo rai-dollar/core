@@ -2,9 +2,9 @@
 
 pragma solidity ^0.8.0;
 
-import "../../v0.8.24/Dependencies/IERC20Metadata.sol";
+import "../Dependencies/IERC20.sol";
 
-interface IWETH is IERC20Metadata {
+interface IWETH is IERC20 {
     function deposit() external payable;
     function withdraw(uint256 wad) external;
 }

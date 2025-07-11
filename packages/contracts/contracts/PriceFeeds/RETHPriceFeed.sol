@@ -3,8 +3,8 @@
 pragma solidity 0.8.24;
 
 import "./CompositePriceFeed.sol";
-import "./Interfaces/IRETHToken.sol";
-import "./Interfaces/IRETHPriceFeed.sol";
+import "../v0.8.24/Interfaces/IRETHToken.sol";
+import "../v0.8.24/Interfaces/IRETHPriceFeed.sol";
 
 
 contract RETHPriceFeed is CompositePriceFeed, IRETHPriceFeed {

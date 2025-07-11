@@ -3,7 +3,7 @@
 pragma solidity 0.8.24;
 
 import "../v0.8.24/Dependencies/AggregatorV3Interface.sol";
-import "./Interfaces/IMainnetPriceFeed.sol";
+import "../v0.8.24/Interfaces/IMainnetPriceFeed.sol";
 // import "../v0.8.24/BorrowerOperations.sol";
 
 abstract contract MainnetPriceFeedBase is IMainnetPriceFeed {
