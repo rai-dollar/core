@@ -1,13 +1,6 @@
-const PriceFeed = artifacts.require("contracts/PriceFeeds/PriceFeedTester.sol")
-const WSTETHPriceFeed = artifacts.require("contracts/PriceFeeds/WSTETHPriceFeed.sol")
-const CompositePriceFeedBase = artifacts.require("contracts/PriceFeeds/CompositePriceFeedBase.sol")
-const ChainlinkParser = artifacts.require("contracts/PriceFeeds/ChainlinkParser.sol")
-const Api3Parser = artifacts.require("contracts/PriceFeeds/Api3Parser.sol")
-const MockAggregator = artifacts.require("contracts/Dependencies/MockAggregator.sol")
+const { chainlinkOracles, tokens } = require('../mainnetAddresses.js');
 
-const { chainlinkOracles, api3Oracles, tellorOracles, tokens } = require('./oracleAddresses');
-
-const { TestHelper, TimeValues } = require("../../utils/testHelpers.js")
+const { TestHelper, TimeValues } = require("../utils/testHelpers.js")
 const th = TestHelper
 
 const { dec, assertRevert, toBN } = th
@@ -26,28 +19,8 @@ contract('OracleMainnetForkTest', async accounts => {
     const deviationThreshold = hre.ethers.utils.parseEther("0.01");  // 1%
 
     // staleness threshold for the price feeds
-    const stalenessThreshold = {
-        chainlink: TimeValues.SECONDS_IN_ONE_DAY,  // 24hr staleness
-        api3: TimeValues.SECONDS_IN_ONE_DAY,  // 24hr staleness
-        tellor: TimeValues.SECONDS_IN_ONE_DAY,  // 24hr staleness
+    const stalenessThreshold = TimeValues.SECONDS_IN_ONE_DAY;  // 24hr staleness
 
-    }
-    const stethMarketOracleConfig = {
-        primaryOracle: chainlinkOracles.stEthUsd,
-        fallbackOracle: hre.ethers.constants.AddressZero,
-        primaryStalenessThreshold: stalenessThreshold.chainlink,
-        fallbackStalenessThreshold: 0
-    }
-
-    const ethUsdOracleConfig = {
-        primaryOracle: chainlinkOracles.ethUsd,
-        fallbackOracle: api3Oracles.ethUsd,
-        primaryStalenessThreshold: stalenessThreshold.chainlink,
-        fallbackStalenessThreshold: stalenessThreshold.api3
-    }
-
-    let mockedMarketOracleConfig;
-    let mockedEthUsdOracleConfig;
     let mockChainlinkAggregator1;
     let mockChainlinkAggregator2;
     let mockApi3Aggregator;
@@ -56,97 +29,66 @@ contract('OracleMainnetForkTest', async accounts => {
     let block;
 
     before(async () => {
-        const chainId = await hre.network.provider.send("eth_chainId");
         block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
-        console.log("Chain ID:", parseInt(chainId, 16));
-        console.log("Block timestamp:", block.timestamp);
-
         const deployerWallet = (await ethers.getSigners())[0];
         const deployerWalletAddress = deployerWallet.address;
 
         const MockChainlinkAggregator = await ethers.getContractFactory("MockChainlinkAggregator", deployerWallet);
-        const MockApi3Aggregator = await ethers.getContractFactory("MockApi3Aggregator", deployerWallet);
 
         mockChainlinkAggregator1 = await MockChainlinkAggregator.deploy();
         mockChainlinkAggregator2 = await MockChainlinkAggregator.deploy();
-        mockApi3Aggregator = await MockApi3Aggregator.deploy();
         
-        //create config for mocked market oracle
-        mockedMarketOracleConfig = {
-            primaryOracle: mockChainlinkAggregator1.address,
-            fallbackOracle: hre.ethers.constants.AddressZero,
-            primaryStalenessThreshold: stalenessThreshold.chainlink,
-            fallbackStalenessThreshold: stalenessThreshold.chainlink
-        }
-
-        //create config for mocked eth usd oracle
-        mockedEthUsdOracleConfig = {
-            primaryOracle: mockChainlinkAggregator2.address,
-            fallbackOracle: mockApi3Aggregator.address,
-            primaryStalenessThreshold: stalenessThreshold.api3,
-            fallbackStalenessThreshold: stalenessThreshold.api3
-        }
-
         const WSTETHPriceFeedFactory = await ethers.getContractFactory("WSTETHPriceFeed", deployerWallet);
 
         // deploy price feeds
         wstEthPriceFeed = await WSTETHPriceFeedFactory.deploy(
-            stethMarketOracleConfig,
-            ethUsdOracleConfig,
+            chainlinkOracles.ethUsd,
+            chainlinkOracles.stEthUsd,
             tokens.wsteth,
-            tokens.wsteth,
-            deviationThreshold
+            stalenessThreshold,
+            stalenessThreshold
         )
 
         // set mocked oracle prices and timestamps
         await mockChainlinkAggregator1.setPrice(hre.ethers.utils.parseUnits("1", 8));
-        await mockChainlinkAggregator1.setTime(block.timestamp);
-
-        await mockChainlinkAggregator2.setPrice(hre.ethers.utils.parseUnits("2", 8));
-        await mockChainlinkAggregator2.setTime(block.timestamp);
-
-        await mockApi3Aggregator.setPrice(hre.ethers.utils.parseEther("3"));
-        await mockApi3Aggregator.setTime(block.timestamp);
-
+        await mockChainlinkAggregator1.setUpdateTime(block.timestamp);
+        
         mockedWstEthPriceFeed = await WSTETHPriceFeedFactory.deploy(
-            stethMarketOracleConfig,
-            mockedEthUsdOracleConfig,
+            chainlinkOracles.ethUsd,
+            mockChainlinkAggregator1.address,
             tokens.wsteth,
-            tokens.wsteth,
-            deviationThreshold
+            stalenessThreshold,
+            stalenessThreshold
         );
     })
 
-    function getPriceWstEthUsdFromReceipt(receipt) {
-        const price = receipt.events.filter(event => event.event === "LastGoodResponseUpdated")[0].args.price;
-        return parseFloat(price);
-    }
     describe("WSTETHPriceFeed", () => {
 
         it("should get the price of wsteth in usd", async () => {
-            // Use fetchPrice instead of getPrice
-            const tx = await wstEthPriceFeed.fetchPrice(false);
-            const receipt = await tx.wait();
-            const price = getPriceWstEthUsdFromReceipt(receipt);
-            // Add some assertions
+            await wstEthPriceFeed.fetchPrice();
+            const price = parseFloat(await wstEthPriceFeed.lastGoodPrice());
             expect(price).to.be.greaterThan(0).and.lessThan(5e21);
         });
         
-        it("should use eth/usd fallback oracle composite if primary oracle is stale", async () => {
-            await mockChainlinkAggregator2.setTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
+        it("should use eth/usd x canonical rate if eth/usd oracle is stale", async () => {
+            await mockChainlinkAggregator1.setUpdateTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
+            await mockedWstEthPriceFeed.fetchPrice();
 
-            const tx = await mockedWstEthPriceFeed.fetchPrice(false);
-            const receipt = await tx.wait();
-            const price = getPriceWstEthUsdFromReceipt(receipt);
+            const state = await mockedWstEthPriceFeed.priceSource();
+            const price = parseFloat(await mockedWstEthPriceFeed.lastGoodPrice());
 
-            const compositeOracleSource = await mockedWstEthPriceFeed.compositePriceSource();
-            const marketOracleSource = await mockedWstEthPriceFeed.marketPriceSource();
-            const wethUsdOracleSource = await mockedWstEthPriceFeed.wethUsdPriceSource();
+            expect(price).to.be.greaterThan(0).and.lessThan(5e21);; // 1.207805461674524e22
+            expect(state).to.be.equal(2);
+        });
 
-            expect(compositeOracleSource).to.equal(1);
-            expect(marketOracleSource).to.equal(0);
-            expect(wethUsdOracleSource).to.equal(0);
-            expect(price).to.be.greaterThan(0).and.lessThan(5e18);
+        it("should use eth/usd x canonical rate if steth/usd oracle returns 0 price", async () => {
+            await mockChainlinkAggregator2.setPrice(hre.ethers.utils.parseUnits("0", 8));
+            await mockChainlinkAggregator2.setUpdateTime(block.timestamp);
+            await mockedWstEthPriceFeed.fetchPrice();
+            const state = await mockedWstEthPriceFeed.priceSource();
+            const price = parseFloat(await mockedWstEthPriceFeed.lastGoodPrice());
+            expect(price).to.be.greaterThan(0).and.lessThan(5e21);; // 1.207805461674524e22
+            expect(state).to.be.equal(2);
         });
 
     })
