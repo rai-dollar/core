@@ -64,6 +64,11 @@ contract('OracleMainnetForkTest', async accounts => {
 
     describe("WSTETHPriceFeed", () => {
 
+        it("lastGoodPrice should be set on deployment", async () => {
+            const price = parseFloat(await wstEthPriceFeed.lastGoodPrice());
+            expect(price).to.be.greaterThan(0).and.lessThan(5e21);
+        });
+
         it("should get the price of wsteth in usd", async () => {
             await wstEthPriceFeed.fetchPrice();
             const price = parseFloat(await wstEthPriceFeed.lastGoodPrice());
