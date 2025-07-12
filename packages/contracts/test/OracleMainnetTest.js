@@ -224,12 +224,11 @@ contract('WstethMainnetForkTest', async accounts => {
         });
 
         it("WstethPriceFeed: fetch price should return min ETHUSD x canonical rate or lastGoodPrice when Steth/usd oracle is stale and price source should be ETHUSDXCanonicalRate", async () => {
-            const stethBeforeFailure = (await chainlinkStEthUsdOracle.latestRoundData()).answer;
             await wstEthPriceFeed.fetchPrice();
-            const price1 = await wstEthPriceFeed.lastGoodPrice();
-            const priceSource1 = await wstEthPriceFeed.priceSource();
-            expect(price1.gt(BigNumber.from(0))).to.be.true;
-            expect(priceSource1).to.be.equal(0);
+            const priceBeforeFailure = await wstEthPriceFeed.lastGoodPrice();
+            const priceSourceBeforeFailure = await wstEthPriceFeed.priceSource();
+            expect(priceBeforeFailure.gt(BigNumber.from(0))).to.be.true;
+            expect(priceSourceBeforeFailure).to.be.equal(0);
 
 
             chainlinkStEthUsdOracle = await etchContract(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
@@ -238,21 +237,24 @@ contract('WstethMainnetForkTest', async accounts => {
             const roundData = await chainlinkStEthUsdOracle.latestRoundData();
             expect(roundData.updatedAt.eq(BigNumber.from(staleTime))).to.be.true;
 
-            const tx = await wstEthPriceFeed.fetchPrice();
-            const receipt = await tx.wait.skip();
-
+            // set gas limit to 2000000 to avoid out of gas error which causes call to get canonical rate to fail
+            const tx = await wstEthPriceFeed.fetchPrice({ gasLimit: 2000000 });
+            const receipt = await tx.wait();
+           
+            // assert that oracle did fail
             const event = getEvent(receipt, "ShutDownFromOracleFailure");
             expect(event).to.exist;
-            // assert that oracle did fail
-            const priceSource2 = await wstEthPriceFeed.priceSource();
+            expect(event.args._failedOracleAddr).to.equal(chainlinkOracles.stEthUsd);
+            const priceSourceAfterFailure = await wstEthPriceFeed.priceSource();
 
-            expect(priceSource2).to.equal(1);
+            expect(priceSourceAfterFailure).to.equal(1);
 
             const lastGoodAfterFailure = await wstEthPriceFeed.lastGoodPrice();
 
             const ethUsdPrice = (await chainlinkEthUsdOracle.latestRoundData()).answer;
             const canonicalRate = await wstEth.stEthPerToken();
             const calculatedPrice = calculateRate(ethUsdPrice, canonicalRate);
+
             const expectedPrice = calculatedPrice.lt(lastGoodAfterFailure) ? calculatedPrice : lastGoodAfterFailure;
 
             expect(lastGoodAfterFailure.eq(expectedPrice)).to.be.true;
