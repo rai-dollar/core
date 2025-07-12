@@ -7,16 +7,16 @@ import "./CompositePriceFeed.sol";
 
 contract WBTCPriceFeed is CompositePriceFeed {
     Oracle public btcUsdOracle;
-    Oracle public wbtcUsdOracle;
+    Oracle public wbtcBtc;
 
     uint256 public constant WBTC_BTC_DEVIATION_THRESHOLD = 2e16; // 2%
 
     constructor( 
-        address _wbtcUsdOracleAddress, 
+        address _wbtcBtcAddress, 
         address _btcUsdOracleAddress,
         uint256 _wbtcUsdStalenessThreshold,
         uint256 _btcUsdStalenessThreshold
-    ) CompositePriceFeed(_wbtcUsdOracleAddress, _btcUsdOracleAddress, _wbtcUsdStalenessThreshold)
+    ) CompositePriceFeed(_wbtcBtcAddress, _btcUsdOracleAddress, _wbtcUsdStalenessThreshold)
     {
         // Store BTC-USD oracle
         btcUsdOracle.aggregator = AggregatorV3Interface(_btcUsdOracleAddress);
@@ -24,9 +24,9 @@ contract WBTCPriceFeed is CompositePriceFeed {
         btcUsdOracle.decimals = btcUsdOracle.aggregator.decimals();
 
         // Store wBTC-USD oracle
-        wbtcUsdOracle.aggregator = AggregatorV3Interface(_wbtcUsdOracleAddress);
-        wbtcUsdOracle.stalenessThreshold = _wbtcUsdStalenessThreshold;
-        wbtcUsdOracle.decimals = wbtcUsdOracle.aggregator.decimals();
+        wbtcBtc.aggregator = AggregatorV3Interface(_wbtcBtcAddress);
+        wbtcBtc.stalenessThreshold = _wbtcUsdStalenessThreshold;
+        wbtcBtc.decimals = wbtcBtc.aggregator.decimals();
 
         _fetchPricePrimary(false);
 
@@ -36,12 +36,14 @@ contract WBTCPriceFeed is CompositePriceFeed {
 
     function _fetchPricePrimary(bool _isRedemption) internal override returns (uint256, bool) {
         assert(priceSource == PriceSource.primary);
-        (uint256 wbtcUsdPrice, bool wbtcUsdOracleDown) = _getOracleAnswer(wbtcUsdOracle);
+        (uint256 wbtcBtcPrice, bool wbtcBtcDown) = _getOracleAnswer(wbtcBtc);
         (uint256 btcUsdPrice, bool btcOracleDown) = _getOracleAnswer(btcUsdOracle);
         
+        uint256 wbtcUsdMarketRate = wbtcBtcPrice * btcUsdPrice / 1e18;
+        
         // tBTC oracle is down or invalid answer
-        if (wbtcUsdOracleDown) {
-            return (_shutDownAndSwitchToLastGoodPrice(address(wbtcUsdOracle.aggregator)), true);
+        if (wbtcBtcDown) {
+            return (_shutDownAndSwitchToLastGoodPrice(address(wbtcBtc.aggregator)), true);
         }
 
         // BTC oracle is down or invalid answer
@@ -50,17 +52,17 @@ contract WBTCPriceFeed is CompositePriceFeed {
         }
 
         // Otherwise, use the primary price calculation:
-        if (_isRedemption && _withinDeviationThreshold(wbtcUsdPrice, btcUsdPrice, WBTC_BTC_DEVIATION_THRESHOLD)) {
+        if (_isRedemption && _withinDeviationThreshold(wbtcUsdMarketRate, btcUsdPrice, WBTC_BTC_DEVIATION_THRESHOLD)) {
             // If it's a redemption and within 2%, take the max of (wBTC-USD, BTC-USD) to prevent value leakage and convert to wBTC-USD
-            wbtcUsdPrice = LiquityMath._max(wbtcUsdPrice, btcUsdPrice);
+            wbtcUsdMarketRate = LiquityMath._max(wbtcUsdMarketRate, btcUsdPrice);
         }else{
             // Take the minimum of (market, canonical) in order to mitigate against upward market price manipulation.
-            wbtcUsdPrice = LiquityMath._min(wbtcUsdPrice, btcUsdPrice);
+            wbtcUsdMarketRate = LiquityMath._min(wbtcUsdMarketRate, btcUsdPrice);
         }
 
         // Otherwise, just use wBTC-USD price: USD_per_wBTC.
-        lastGoodPrice = wbtcUsdPrice;
-        return (wbtcUsdPrice, false);
+        lastGoodPrice = wbtcUsdMarketRate;
+        return (wbtcUsdMarketRate, false);
     }
 
     function _getCanonicalRate() internal view override returns (uint256, bool) {

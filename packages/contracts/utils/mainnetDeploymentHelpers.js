@@ -76,6 +76,12 @@ class MainnetDeploymentHelper {
     const hintHelpersFactory = await this.getFactory("HintHelpers")
     const lusdTokenFactory = await this.getFactory("LUSDToken")
     const tellorCallerFactory = await this.getFactory("TellorCaller")
+    const wstEthPriceFeedFactory = await this.getFactory("WSTETHPriceFeed")
+    const stEthPriceFeedFactory = await this.getFactory("STETHPriceFeed")
+    const rethPriceFeedFactory = await this.getFactory("RETHPriceFeed")
+    const wbtcPriceFeedFactory = await this.getFactory("WBTCPriceFeed")
+    const btcPriceFeedFactory = await this.getFactory("BTCPriceFeed")
+    const rsEthPriceFeedFactory = await this.getFactory("RSETHPriceFeed")
 
     // Deploy txs
     const priceFeed = await this.loadOrDeploy(priceFeedFactory, 'priceFeed', deploymentState)
@@ -89,6 +95,45 @@ class MainnetDeploymentHelper {
     const borrowerOperations = await this.loadOrDeploy(borrowerOperationsFactory, 'borrowerOperations', deploymentState)
     const hintHelpers = await this.loadOrDeploy(hintHelpersFactory, 'hintHelpers', deploymentState)
     const tellorCaller = await this.loadOrDeploy(tellorCallerFactory, 'tellorCaller', deploymentState, [tellorMasterAddr])
+    
+    // Deploy price feeds
+    const wstEthPriceFeed = await this.loadOrDeploy(wstEthPriceFeedFactory, 'wstEthPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.WSTETH_ERC20,
+      configParams.externalAddrs.STETH_ERC20,
+      configParams.externalAddrs.STETH_ERC20,
+    ])
+    const stEthPriceFeed = await this.loadOrDeploy(stEthPriceFeedFactory, 'stEthPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.STETH_ERC20,
+      configParams.externalAddrs.STETH_ERC20,
+    ])
+    const rethPriceFeed = await this.loadOrDeploy(rethPriceFeedFactory, 'rethPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.STETH_ERC20,
+      configParams.externalAddrs.STETH_ERC20,
+    ])
+    const wbtcPriceFeed = await this.loadOrDeploy(wbtcPriceFeedFactory, 'wbtcPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.STETH_ERC20,
+      configParams.externalAddrs.STETH_ERC20,
+    ])
+    const btcPriceFeed = await this.loadOrDeploy(btcPriceFeedFactory, 'btcPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.STETH_ERC20,
+      configParams.externalAddrs.STETH_ERC20,
+    ])
+    const rsEthPriceFeed = await this.loadOrDeploy(rsEthPriceFeedFactory, 'rsEthPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.STETH_ERC20,
+      configParams.externalAddrs.STETH_ERC20,
+    ])
 
     const lusdTokenParams = [
       troveManager.address,
