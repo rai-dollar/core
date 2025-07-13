@@ -13,10 +13,6 @@ const hre = require("hardhat");
 // anvil --fork-url https://eth-mainnet.g.alchemy.com/v2/iqmesrxjl-9DUKFsGYB7Xfs0LAPpKv1m --chain-id 31337
 // yarn workspace @liquity/contracts hardhat test test/MainnetPriceFeedTest.js --network anvil
 
-async function getOraclePrice(oracle) {
-    const price = await oracle.latestRoundData();
-    return price.answer;
-}
 
 function getEvent(receipt, eventName) {
     const event = receipt.events.find(log => log.event === eventName);
@@ -24,12 +20,6 @@ function getEvent(receipt, eventName) {
 }
 
 contract('PriceFeedMainnetForkTest', async accounts => {
-    const [owner, alice, bob, carol] = accounts;
-    const [bountyAddress, lpRewardsAddress, multisig] = accounts.slice(997, 1000)
-    // oracles used in the price feeds
-    
-    // deviation threshold for the price feeds - use ethers BigNumber instead of web3 toBN
-    const deviationThreshold = hre.ethers.utils.parseEther("0.01");  // 1%
 
     // staleness threshold for the price feeds
     const stalenessThreshold = TimeValues.SECONDS_IN_ONE_DAY;  // 24hr staleness
@@ -40,16 +30,6 @@ contract('PriceFeedMainnetForkTest', async accounts => {
     let wstEthPriceFeed;
     let rethPriceFeed;
     let block;
-
-    function calculateCanonicalStethRate(ethUsdPrice, stEthUsdPrice, stEthRate) {
-        // add 10 digits to price
-        const ethUsdPriceWith10Digits = ethUsdPrice.mul(BigNumber.from(dec(1,10)));
-        const stEthUsdPriceWith10Digits = stEthUsdPrice.mul(BigNumber.from(dec(1,10)));
-        const bestRate = ethUsdPriceWith10Digits.gt(stEthUsdPriceWith10Digits) ? ethUsdPriceWith10Digits : stEthUsdPriceWith10Digits;
-        const lstUsdCanonicalPrice = bestRate.mul(lstRate).div(BigNumber.from(dec(1,18)));
-
-        return lstUsdCanonicalPrice;
-    }
 
     function calculateRethPrice(ethUsdPrice, rEthEthPrice, canonicalRate, isRedemption) {
         // scale up ethUsdPrice and rEthEthPrice by 10 digits
@@ -117,7 +97,6 @@ contract('PriceFeedMainnetForkTest', async accounts => {
            
         block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
         const deployerWallet = (await ethers.getSigners())[0];
-        const deployerWalletAddress = deployerWallet.address;
 
         chainlinkEthUsdOracle = await ethers.getContractAt(AggregatorV3InterfaceArtifact.abi, chainlinkOracles.ethUsd, deployerWallet);
         chainlinkStEthUsdOracle = await ethers.getContractAt(AggregatorV3InterfaceArtifact.abi, chainlinkOracles.stEthUsd, deployerWallet);
@@ -140,13 +119,13 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             const price = await oracle.latestRoundData();
             return price.answer;
         }
-        it.skip("WstethPriceFeed: lastGoodPrice should be set on deployment", async () => {
+        it("WstethPriceFeed: lastGoodPrice should be set on deployment", async () => {
             const price = await wstEthPriceFeed.lastGoodPrice();
             expect(price.gt(BigNumber.from(dec(0,18)))).to.be.true;
             expect(price.lt(BigNumber.from(dec(5,21)))).to.be.true;
         });
 
-        it.skip("WstethPriceFeed: should get the price of wsteth in usd", async () => {
+        it("WstethPriceFeed: should get the price of wsteth in usd", async () => {
             await wstEthPriceFeed.fetchPrice();
             const price = await wstEthPriceFeed.lastGoodPrice();
             const stEthUsdPrice = (await chainlinkStEthUsdOracle.latestRoundData()).answer;
@@ -155,7 +134,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(price.eq(canonicalPrice)).to.be.true;
         });
         
-        it.skip("WstethPriceFeed: should use eth/usd x canonical rate if steth/usd oracle is stale", async () => {
+        it("WstethPriceFeed: should use eth/usd x canonical rate if steth/usd oracle is stale", async () => {
             // etch chainlink wsteth oracle with mock chainlink aggregator
             chainlinkStEthUsdOracle = await etchContract(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
             await chainlinkStEthUsdOracle.setUpdateTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
@@ -175,7 +154,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource).to.equal(1);
         });
 
-        it.skip("WstethPriceFeed: should use eth/usd x canonical rate if steth/usd oracle returns 0 price", async () => {
+        it("WstethPriceFeed: should use eth/usd x canonical rate if steth/usd oracle returns 0 price", async () => {
             chainlinkStEthUsdOracle = await etchContract(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
             await chainlinkStEthUsdOracle.setPrice(hre.ethers.utils.parseUnits("0", 8));
             await chainlinkStEthUsdOracle.setUpdateTime(block.timestamp);
@@ -194,25 +173,25 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource).to.equal(1);
         });
 
-        it.skip("WstethPriceFeed: should have correct stored staleness for chainlink steth/usd oracle", async () => {
+        it("WstethPriceFeed: should have correct stored staleness for chainlink steth/usd oracle", async () => {
             const oracle = await wstEthPriceFeed.stEthUsdOracle();
             expect(oracle.stalenessThreshold.eq(BigNumber.from(TimeValues.SECONDS_IN_ONE_DAY))).to.be.true;
         });
 
-        it.skip("WstethPriceFeed: should have correct stored staleness for chainlink eth/usd oracle", async () => {
+        it("WstethPriceFeed: should have correct stored staleness for chainlink eth/usd oracle", async () => {
             const oracle = await wstEthPriceFeed.ethUsdOracle();
             expect(oracle.stalenessThreshold.eq(BigNumber.from(stalenessThreshold))).to.be.true;
         });
 
 
 
-        it.skip("WstethPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when canonicalexchange rate fails", async () => {
+        it("WstethPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when canonicalexchange rate fails", async () => {
             await wstEthPriceFeed.fetchPrice();
             const lastGoodPrice = await wstEthPriceFeed.lastGoodPrice();
             wstEth = await etchContract(tokens.wsteth, MockWSTETHArtifact);
 
             const tx = await wstEthPriceFeed.fetchPrice();
-            const receipt = await tx.wait.skip();
+            const receipt = await tx.wait();
             const event = getEvent(receipt, "ShutDownFromOracleFailure");
 
             const priceSource = await wstEthPriceFeed.priceSource();
@@ -223,7 +202,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(lastGoodPrice.eq(priceAfterFailure)).to.be.true;
         });
 
-        it.skip("WstethPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle isStale", async () => {
+        it("WstethPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle isStale", async () => {
             await wstEthPriceFeed.fetchPrice();
             const price1 = await wstEthPriceFeed.lastGoodPrice();
             const priceSource1 = await wstEthPriceFeed.priceSource();
@@ -243,7 +222,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource2).to.equal(2);
         });
 
-        it.skip("WstethPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle returns 0 price", async () => {
+        it("WstethPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle returns 0 price", async () => {
             await wstEthPriceFeed.fetchPrice();
             const price1 = await wstEthPriceFeed.lastGoodPrice();
             const priceSource1 = await wstEthPriceFeed.priceSource();
@@ -263,7 +242,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource2).to.equal(2);
         });
 
-        it.skip("WstethPriceFeed: fetch price should return min ETHUSD x canonical rate or lastGoodPrice when Steth/usd oracle is stale and price source should be ETHUSDXCanonicalRate", async () => {
+        it("WstethPriceFeed: fetch price should return min ETHUSD x canonical rate or lastGoodPrice when Steth/usd oracle is stale and price source should be ETHUSDXCanonicalRate", async () => {
             await wstEthPriceFeed.fetchPrice();
             const priceBeforeFailure = await wstEthPriceFeed.lastGoodPrice();
             const priceSourceBeforeFailure = await wstEthPriceFeed.priceSource();
@@ -279,7 +258,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
 
             // set gas limit to 2000000 to avoid out of gas error which causes call to getCanonicalRate to fail
             const tx = await wstEthPriceFeed.fetchPrice({ gasLimit: 2000000 });
-            const receipt = await tx.wait.skip();
+            const receipt = await tx.wait();
            
             // assert that oracle did fail
             const event = getEvent(receipt, "ShutDownFromOracleFailure");
@@ -300,7 +279,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(lastGoodAfterFailure.eq(expectedPrice)).to.be.true;
         });
 
-        it.skip("WstethPriceFeed: When Using ETHUSDxCanonical, it remains shut down when ETHUSDOracle fails", async () => {
+        it("WstethPriceFeed: When Using ETHUSDxCanonical, it remains shut down when ETHUSDOracle fails", async () => {
             await wstEthPriceFeed.fetchPrice();
             const priceBeforeFailure = await wstEthPriceFeed.lastGoodPrice();
             const priceSourceBeforeFailure = await wstEthPriceFeed.priceSource();
@@ -309,7 +288,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             chainlinkStEthUsdOracle = await etchContract(chainlinkOracles.stEthUsd, MockChainlinkAggregatorArtifact);
             await chainlinkStEthUsdOracle.setUpdateTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
             const tx = await wstEthPriceFeed.fetchPrice({ gasLimit: 2000000 });
-            const receipt = await tx.wait.skip();
+            const receipt = await tx.wait();
 
             // assert that oracle did fail
             const event = getEvent(receipt, "ShutDownFromOracleFailure");
@@ -347,7 +326,6 @@ contract('PriceFeedMainnetForkTest', async accounts => {
            
         block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
         const deployerWallet = (await ethers.getSigners())[0];
-        const deployerWalletAddress = deployerWallet.address;
 
         chainlinkEthUsdOracle = await ethers.getContractAt(AggregatorV3InterfaceArtifact.abi, chainlinkOracles.ethUsd, deployerWallet);
         chainlinkRethEthOracle = await ethers.getContractAt(AggregatorV3InterfaceArtifact.abi, chainlinkOracles.rsEthEth, deployerWallet);
@@ -366,33 +344,26 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             stalenessThreshold
         )
         });
-        async function getPrice(oracle) {
-            const price = await oracle.latestRoundData();
-            return price.answer;
-        }
-        it.skip("RETHPriceFeed: lastGoodPrice should be set on deployment", async () => {
+
+        it("RETHPriceFeed: lastGoodPrice should be set on deployment", async () => {
             const price = await rethPriceFeed.lastGoodPrice();
             expect(price.gt(BigNumber.from(dec(0,18)))).to.be.true;
             expect(price.lt(BigNumber.from(dec(5,21)))).to.be.true;
         });
 
-        it.skip("RETHPriceFeed: should get the price of reth in usd", async () => {
+        it("RETHPriceFeed: should get the price of reth in usd", async () => {
             await rethPriceFeed.fetchPrice();
             const price = await rethPriceFeed.lastGoodPrice();
             const rEthEthPrice = (await chainlinkRethEthOracle.latestRoundData()).answer;
             const ethUsdPrice = (await chainlinkEthUsdOracle.latestRoundData()).answer;
             const canonicalRate = await reth.getExchangeRate(); 
             const canonicalPrice = calculateRethPrice(ethUsdPrice, rEthEthPrice, canonicalRate, false);
-            console.log("ethUsdPrice", ethUsdPrice.toString());
-            console.log("rEthEthPrice", rEthEthPrice.toString());
-            console.log("canonicalRate", canonicalRate.toString());
-            console.log("canonicalPrice", canonicalPrice.toString());
-
-            console.log("price", price.toString());
+            const priceSource = await rethPriceFeed.priceSource();
             expect(price.eq(canonicalPrice)).to.be.true;
+            expect(priceSource).to.equal(0);
         });
         
-        it.skip("RETHPriceFeed: should use min(eth/usd x canonical rate, lastgoodprice) if reth/eth oracle is stale", async () => {
+        it("RETHPriceFeed: should use min(eth/usd x canonical rate, lastgoodprice) if reth/eth oracle is stale", async () => {
             // etch chainlink reth/eth oracle with mock chainlink aggregator
             chainlinkRethEthOracle = await etchContract(chainlinkOracles.rsEthEth, MockChainlinkAggregatorArtifact);
             await chainlinkRethEthOracle.setUpdateTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
@@ -412,7 +383,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource).to.equal(1);
         });
 
-        it.skip("RETHPriceFeed: should use eth/usd x canonical rate if steth/usd oracle returns 0 price", async () => {
+        it("RETHPriceFeed: should use eth/usd x canonical rate if steth/usd oracle returns 0 price", async () => {
             chainlinkRethEthOracle = await etchContract(chainlinkOracles.rsEthEth, MockChainlinkAggregatorArtifact);
             await chainlinkRethEthOracle.setPrice(hre.ethers.utils.parseUnits("0", 8));
             await chainlinkRethEthOracle.setUpdateTime(block.timestamp);
@@ -431,19 +402,19 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource).to.equal(1);
         });
 
-        it.skip("RETHPriceFeed: should have correct stored staleness for chainlink steth/usd oracle", async () => {
+        it("RETHPriceFeed: should have correct stored staleness for chainlink steth/usd oracle", async () => {
             const oracle = await rethPriceFeed.rEthEthOracle();
             expect(oracle.stalenessThreshold.eq(BigNumber.from(TimeValues.SECONDS_IN_ONE_DAY))).to.be.true;
         });
 
-        it.skip("RETHPriceFeed: should have correct stored staleness for chainlink eth/usd oracle", async () => {
+        it("RETHPriceFeed: should have correct stored staleness for chainlink eth/usd oracle", async () => {
             const oracle = await rethPriceFeed.ethUsdOracle();
             expect(oracle.stalenessThreshold.eq(BigNumber.from(stalenessThreshold))).to.be.true;
         });
 
 
 
-        it.skip("RETHPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when canonical exchange rate fails", async () => {
+        it("RETHPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when canonical exchange rate fails", async () => {
             await rethPriceFeed.fetchPrice();
             const lastGoodPrice = await rethPriceFeed.lastGoodPrice();
             reth = await etchContract(tokens.reth, MockRETHArtifact);
@@ -461,7 +432,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(lastGoodPrice.eq(priceAfterFailure)).to.be.true;
         });
 
-        it.skip("RETHPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle isStale", async () => {
+        it("RETHPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle isStale", async () => {
             await rethPriceFeed.fetchPrice();
             const price1 = await rethPriceFeed.lastGoodPrice();
             const priceSource1 = await rethPriceFeed.priceSource();
@@ -481,7 +452,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource2).to.equal(2);
         });
 
-        it.skip("RETHPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle returns 0 price", async () => {
+        it("RETHPriceFeed: price source should be lastGoodPrice and should return lastGoodPrice when Eth/USD oracle returns 0 price", async () => {
             await rethPriceFeed.fetchPrice();
             const price1 = await rethPriceFeed.lastGoodPrice();
             const priceSource1 = await rethPriceFeed.priceSource();
@@ -501,7 +472,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(priceSource2).to.equal(2);
         });
 
-        it.skip("RETHPriceFeed: fetch price should return min ETHUSD x canonical rate or lastGoodPrice when Steth/usd oracle is stale and price source should be ETHUSDXCanonicalRate", async () => {
+        it("RETHPriceFeed: fetch price should return min ETHUSD x canonical rate or lastGoodPrice when Steth/usd oracle is stale and price source should be ETHUSDXCanonicalRate", async () => {
             await rethPriceFeed.fetchPrice();
             const priceBeforeFailure = await rethPriceFeed.lastGoodPrice();
             const priceSourceBeforeFailure = await rethPriceFeed.priceSource();
@@ -538,7 +509,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             expect(lastGoodAfterFailure.eq(expectedPrice)).to.be.true;
         });
 
-        it.skip("RETHPriceFeed: When Using ETHUSDxCanonical, it remains shut down when ETHUSDOracle fails", async () => {
+        it("RETHPriceFeed: When Using ETHUSDxCanonical, it remains shut down when ETHUSDOracle fails", async () => {
             await rethPriceFeed.fetchPrice();
             const priceBeforeFailure = await rethPriceFeed.lastGoodPrice();
             const priceSourceBeforeFailure = await rethPriceFeed.priceSource();
@@ -565,5 +536,231 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             const priceSourceAfterEthUsdFailure = await rethPriceFeed.priceSource();
             expect(priceSourceAfterEthUsdFailure).to.be.equal(2);
         });
+    });
+    
+    function calculateWbtcPrice(btcUsdPrice, wbtcBtcPrice, isRedemption) {
+        // Scale up prices by 10 digits (matching the pattern from other calculate functions)
+        const btcUsdPriceWith10Digits = btcUsdPrice.mul(BigNumber.from(dec(1,10)));
+        const wbtcBtcPriceWith10Digits = wbtcBtcPrice.mul(BigNumber.from(dec(1,10)));
+        
+        // Constants
+        const DECIMAL_PRECISION = BigNumber.from(dec(1, 18));
+        const WBTC_BTC_DEVIATION_THRESHOLD = BigNumber.from(dec(2, 16)); // 2%
+        
+        // Calculate the market WBTC-USD price: USD_per_WBTC = USD_per_BTC * BTC_per_WBTC
+        const wbtcUsdMarketPrice = btcUsdPriceWith10Digits.mul(wbtcBtcPriceWith10Digits).div(DECIMAL_PRECISION);
+        
+        // For WBTC, canonical rate is always 1 BTC per WBTC, so canonical price equals BTC-USD price
+        const wbtcUsdCanonicalPrice = btcUsdPriceWith10Digits;
+        
+        let wbtcUsdPrice;
+        
+        // Check if prices are within deviation threshold (2%)
+        function withinDeviationThreshold(priceToCheck, referencePrice, deviationThreshold) {
+            const max = referencePrice.mul(DECIMAL_PRECISION.add(deviationThreshold)).div(DECIMAL_PRECISION);
+            const min = referencePrice.mul(DECIMAL_PRECISION.sub(deviationThreshold)).div(DECIMAL_PRECISION);
+            return priceToCheck.gte(min) && priceToCheck.lte(max);
+        }
+        
+        // If it's a redemption and within 2% deviation, take the max to prevent value leakage
+        if (isRedemption && withinDeviationThreshold(wbtcUsdMarketPrice, wbtcUsdCanonicalPrice, WBTC_BTC_DEVIATION_THRESHOLD)) {
+            wbtcUsdPrice = wbtcUsdMarketPrice.gt(wbtcUsdCanonicalPrice) ? wbtcUsdMarketPrice : wbtcUsdCanonicalPrice;
+        } else {
+            // Take the minimum of (market, canonical) to mitigate against upward market price manipulation
+            wbtcUsdPrice = wbtcUsdMarketPrice.lt(wbtcUsdCanonicalPrice) ? wbtcUsdMarketPrice : wbtcUsdCanonicalPrice;
+        }
+        
+        return wbtcUsdPrice;
+    }
+
+    describe("WBTCPriceFeed", () => {
+        let wbtcPriceFeed;
+        let chainlinkWbtcBtcOracle;
+        let chainlinkBtcUsdOracle;
+        let wbtc;
+        
+        beforeEach(async () => {
+            // Reset fork state before each test
+            await hre.network.provider.request({
+                method: "hardhat_reset",
+                params: [
+                    {
+                        forking: {
+                            jsonRpcUrl: process.env.MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/iqmesrxjl-9DUKFsGYB7Xfs0LAPpKv1m",
+                            // Optional: pin to specific block for consistency
+                            blockNumber: 22894418,
+                        },
+                    },
+                ],
+            });
+
+            // Reset fork state before each test
+        await hre.network.provider.request({
+            method: "hardhat_reset",
+            params: [
+                {
+                    forking: {
+                        jsonRpcUrl: process.env.MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/iqmesrxjl-9DUKFsGYB7Xfs0LAPpKv1m",
+                        // Optional: pin to specific block for consistency
+                        blockNumber: 22894418,
+                    },
+                },
+            ],
+        });
+           
+        block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
+        const deployerWallet = (await ethers.getSigners())[0];
+        const deployerWalletAddress = deployerWallet.address;
+
+        chainlinkWbtcBtcOracle = await ethers.getContractAt(AggregatorV3InterfaceArtifact.abi, chainlinkOracles.wbtcBtc, deployerWallet);
+        chainlinkBtcUsdOracle = await ethers.getContractAt(AggregatorV3InterfaceArtifact.abi, chainlinkOracles.btcUsd, deployerWallet);
+
+        wbtc = await ethers.getContractAt("IWBTCToken", tokens.wbtc, deployerWallet);
+
+        
+        const WBTCPriceFeedFactory = await ethers.getContractFactory("WBTCPriceFeed", deployerWallet);
+
+        // deploy price feeds
+        wbtcPriceFeed = await WBTCPriceFeedFactory.deploy(
+            chainlinkOracles.wbtcBtc,
+            chainlinkOracles.btcUsd,
+            stalenessThreshold,
+            stalenessThreshold
+        )
+        });
+        it("WBTCPriceFeed: lastGoodPrice should be set on deployment", async () => {
+            const price = await wbtcPriceFeed.lastGoodPrice();
+            expect(price.gt(BigNumber.from(dec(0,18)))).to.be.true;
+        });
+
+        it("WBTCPriceFeed: should get the price of wbtc in usd", async () => {
+            await wbtcPriceFeed.fetchPrice();
+            const price = await wbtcPriceFeed.lastGoodPrice();
+            const wbtcBtcPrice = (await chainlinkWbtcBtcOracle.latestRoundData()).answer;
+            const btcUsdPrice = (await chainlinkBtcUsdOracle.latestRoundData()).answer;
+            const canonicalPrice = calculateWbtcPrice(btcUsdPrice, wbtcBtcPrice, false);
+            expect(price.eq(canonicalPrice)).to.be.true;
+        });
+        
+        it("WBTCPriceFeed: should use lastgoodprice if Wbtc/Btc oracle is stale", async () => {
+            const lastGoodPriceBeforeStale = await wbtcPriceFeed.lastGoodPrice();
+            // etch chainlink reth/eth oracle with mock chainlink aggregator
+            chainlinkWbtcBtcOracle = await etchContract(chainlinkOracles.wbtcBtc, MockChainlinkAggregatorArtifact);
+            await chainlinkWbtcBtcOracle.setUpdateTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
+            // set gas limit to 2000000 to avoid out of gas error which causes call to getCanonicalRate to fail
+            await wbtcPriceFeed.fetchPrice({ gasLimit: 2000000 });
+
+            const priceSource = await wbtcPriceFeed.priceSource();
+            const lastGoodPrice = await wbtcPriceFeed.lastGoodPrice();
+
+            expect(lastGoodPrice.eq(lastGoodPriceBeforeStale)).to.be.true;
+            expect(priceSource).to.equal(2);
+        });
+
+        it("WBTCPriceFeed: should use lastgoodprice if wbtc/btc oracle returns 0 price", async () => {
+            const lastGoodPriceBeforeStale = await wbtcPriceFeed.lastGoodPrice();   
+            chainlinkWbtcBtcOracle = await etchContract(chainlinkOracles.wbtcBtc, MockChainlinkAggregatorArtifact);
+            await chainlinkWbtcBtcOracle.setPrice(hre.ethers.utils.parseUnits("0", 8));
+            await chainlinkWbtcBtcOracle.setUpdateTime(block.timestamp);
+            // set gas limit to 2000000 to avoid out of gas error which causes call to getCanonicalRate to fail
+            await wbtcPriceFeed.fetchPrice({ gasLimit: 2000000 });
+
+            const priceSource = await wbtcPriceFeed.priceSource();
+            const lastGoodPrice = await wbtcPriceFeed.lastGoodPrice();
+
+            expect(lastGoodPrice.eq(lastGoodPriceBeforeStale)).to.be.true;
+            expect(priceSource).to.equal(2);
+        });
+
+        it("WBTCPriceFeed: should have correct stored staleness for chainlink wbtc/btc oracle", async () => {
+            const oracle = await wbtcPriceFeed.btcUsdOracle();
+            expect(oracle.stalenessThreshold.eq(BigNumber.from(TimeValues.SECONDS_IN_ONE_DAY))).to.be.true;
+        });
+
+        it("WBTCPriceFeed: should have correct stored staleness for chainlink btc/usd oracle", async () => {
+            const oracle = await wbtcPriceFeed.wbtcBtc();
+            expect(oracle.stalenessThreshold.eq(BigNumber.from(stalenessThreshold))).to.be.true;
+        });
+
+
+    });
+
+    describe("WETHPriceFeed", () => {
+        let wethPriceFeed;
+        let chainlinkEthUsdOracle;
+        let weth;
+
+        beforeEach(async () => {
+            // Reset fork state before each test
+            await hre.network.provider.request({
+                method: "hardhat_reset",
+                params: [
+                    {
+                        forking: {
+                            jsonRpcUrl: process.env.MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/iqmesrxjl-9DUKFsGYB7Xfs0LAPpKv1m",
+                            // Optional: pin to specific block for consistency
+                            blockNumber: 22894418,
+                        },
+                    },
+                ],
+            });
+
+            block = await hre.network.provider.send("eth_getBlockByNumber", ["latest", false]);
+            const deployerWallet = (await ethers.getSigners())[0];
+            const deployerWalletAddress = deployerWallet.address;
+
+            chainlinkEthUsdOracle = await ethers.getContractAt(AggregatorV3InterfaceArtifact.abi, chainlinkOracles.ethUsd, deployerWallet);
+            weth = await ethers.getContractAt("IWETH", tokens.weth, deployerWallet);
+
+            const WETHPriceFeedFactory = await ethers.getContractFactory("WETHPriceFeed", deployerWallet);
+
+            wethPriceFeed = await WETHPriceFeedFactory.deploy(
+                chainlinkOracles.ethUsd,
+                stalenessThreshold
+            )
+        });
+
+        it("WETHPriceFeed: lastGoodPrice should be set on deployment", async () => {
+            const price = await wethPriceFeed.lastGoodPrice();
+            expect(price.gt(BigNumber.from(dec(0,18)))).to.be.true;
+        });
+
+        it("WETHPriceFeed: should get the price of weth in usd", async () => {
+            await wethPriceFeed.fetchPrice();
+            const price = await wethPriceFeed.lastGoodPrice();
+            const wethUsdPrice = (await chainlinkEthUsdOracle.latestRoundData()).answer;
+            const priceSource = await wethPriceFeed.priceSource();
+
+            expect(price.eq(wethUsdPrice.mul(BigNumber.from(dec(1,10))))).to.be.true;
+            expect(priceSource).to.equal(0);
+        });
+
+        it("WETHPriceFeed: should use lastgoodprice if weth/usd oracle is stale", async () => {
+            const lastGoodPriceBeforeStale = await wethPriceFeed.lastGoodPrice();
+            chainlinkEthUsdOracle = await etchContract(chainlinkOracles.ethUsd, MockChainlinkAggregatorArtifact);
+            await chainlinkEthUsdOracle.setUpdateTime(block.timestamp - (TimeValues.SECONDS_IN_ONE_DAY + 1));
+            await wethPriceFeed.fetchPrice({ gasLimit: 2000000 });
+
+            const priceSource = await wethPriceFeed.priceSource();
+            const lastGoodPrice = await wethPriceFeed.lastGoodPrice();
+
+            expect(lastGoodPrice.eq(lastGoodPriceBeforeStale)).to.be.true;
+            expect(priceSource).to.equal(2);
+        });
+        
+        it("WETHPriceFeed: should use lastgoodprice if weth/usd oracle returns 0 price", async () => {
+            const lastGoodPriceBeforeStale = await wethPriceFeed.lastGoodPrice();
+            chainlinkEthUsdOracle = await etchContract(chainlinkOracles.ethUsd, MockChainlinkAggregatorArtifact);
+            await chainlinkEthUsdOracle.setPrice(hre.ethers.utils.parseUnits("0", 8));
+            await chainlinkEthUsdOracle.setUpdateTime(block.timestamp);
+            await wethPriceFeed.fetchPrice({ gasLimit: 2000000 });
+
+            const priceSource = await wethPriceFeed.priceSource();
+            const lastGoodPrice = await wethPriceFeed.lastGoodPrice();
+
+            expect(lastGoodPrice.eq(lastGoodPriceBeforeStale)).to.be.true;
+            expect(priceSource).to.equal(2);
+        });
+        
     });
 })

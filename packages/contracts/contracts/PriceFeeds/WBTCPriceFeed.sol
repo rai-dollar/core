@@ -10,7 +10,7 @@ contract WBTCPriceFeed is CompositePriceFeed {
     Oracle public wbtcBtc;
 
     uint256 public constant WBTC_BTC_DEVIATION_THRESHOLD = 2e16; // 2%
-
+    
     constructor( 
         address _wbtcBtcAddress, 
         address _btcUsdOracleAddress,
