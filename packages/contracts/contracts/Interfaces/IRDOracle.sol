@@ -56,11 +56,6 @@ interface IRDOracle {
     error Oracle_DivisionByZero();
 
     /**
-     * @notice Error thrown when trying to calculate the median of an empty array
-     */
-    error Oracle_MedianCalculationError();
-
-    /**
      * @notice Error thrown when the oracle result is invalid
      */
     error Oracle_InvalidResult();

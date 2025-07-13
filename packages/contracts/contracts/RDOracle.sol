@@ -11,7 +11,7 @@ import {IHooks} from "./Vendor/@balancer-labs/v3-interfaces/contracts/vault/IHoo
 import {IVault} from "./Vendor/@balancer-labs/v3-interfaces/contracts/vault/IVault.sol";
 
 import {VaultGuard} from "./Vendor/@balancer-labs/v3-vault/contracts/VaultGuard.sol";
-import {HookFlags, TokenConfig, LiquidityManagement, AfterSwapParams} from "./Vendor/@balancer-labs/v3-interfaces/contracts/vault/VaultTypes.sol";
+import {HookFlags, TokenConfig, LiquidityManagement, AfterSwapParams, AddLiquidityKind, RemoveLiquidityKind} from "./Vendor/@balancer-labs/v3-interfaces/contracts/vault/VaultTypes.sol";
 
 import {BasePoolFactory} from "./Vendor/@balancer-labs/v3-pool-utils/contracts/BasePoolFactory.sol";
 import {StablePool, Rounding} from "./Vendor/@balancer-labs/v3-pool-stable/contracts/StablePool.sol";
@@ -140,6 +140,8 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         // _initialize(_convertPriceToSqrtPriceX96(_WAD));
     }
 
+    // --- Hooks ---
+
     /// @inheritdoc IHooks
     function onRegister(
         address _factory,
@@ -195,6 +197,8 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     /// @inheritdoc BaseHooks
     function getHookFlags() public pure override returns (HookFlags memory hookFlags_) {
         hookFlags_.shouldCallAfterSwap = true;
+        hookFlags_.shouldCallAfterAddLiquidity = true;
+        hookFlags_.shouldCallAfterRemoveLiquidity = true;
         return hookFlags_;
     }
 
@@ -202,6 +206,45 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     function onAfterSwap(
         AfterSwapParams calldata _params
     ) public override onlyVault returns (bool _success, uint256 _hookAdjustedAmountCalculatedRaw) {
+        _onHookCalled(_params.pool);
+        return (true, 0);
+    }
+
+    /// @inheritdoc BaseHooks
+    function onAfterAddLiquidity(
+        address,
+        address _pool,
+        AddLiquidityKind,
+        uint256[] memory,
+        uint256[] memory _amountsInRaw,
+        uint256,
+        uint256[] memory,
+        bytes memory
+    ) public override onlyVault returns (bool, uint256[] memory) {
+        _onHookCalled(_pool);
+        return (true, _amountsInRaw);
+    }
+
+    /// @inheritdoc BaseHooks
+    function onAfterRemoveLiquidity(
+        address,
+        address _pool,
+        RemoveLiquidityKind,
+        uint256,
+        uint256[] memory,
+        uint256[] memory _amountsOutRaw,
+        uint256[] memory,
+        bytes memory
+    ) public override onlyVault returns (bool, uint256[] memory) {
+        _onHookCalled(_pool);
+        return (true, _amountsOutRaw);
+    }
+
+    /**
+     * @notice Update the synthetic RD price if the hook was called
+     * @param  _pool The pool address
+     */
+    function _onHookCalled(address _pool) internal {
         // If time since last observation > minDelta then update price in observations
         bool _shouldUpdate = true;
 
@@ -215,20 +258,13 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         }
 
         // Emit event for debugging
-        emit OracleHookCalled(
-            _params.pool,
-            _shouldUpdate,
-            _timeSinceLastUpdate,
-            minObservationDelta
-        );
+        emit OracleHookCalled(_pool, _shouldUpdate, _timeSinceLastUpdate, minObservationDelta);
 
         if (_shouldUpdate) {
             // Get last balances of all tokens in the pool
-            (, , , uint256[] memory _lastBalancesWad) = IVault(vault).getPoolTokenInfo(_params.pool);
+            (, , , uint256[] memory _lastBalancesWad) = IVault(vault).getPoolTokenInfo(_pool);
             _updateSyntheticRDPrice(_lastBalancesWad);
         }
-
-        return (true, 0);
     }
 
     // --- Methods ---
@@ -371,26 +407,6 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
     }
 
     /**
-     * @notice Get the number of seconds ago of the oldest stored observation
-     * @return _secondsAgo The number of seconds ago of the oldest observation stored for the pool
-     */
-    function _getOldestObservationSecondsAgo() internal view returns (uint32 _secondsAgo) {
-        uint16 _observationIndex = oracleState.observationIndex;
-        uint16 _observationCardinality = oracleState.observationCardinality;
-        (uint32 _observationTimestamp, , , bool _initialized) = this.observations(
-            (_observationIndex + 1) % _observationCardinality
-        );
-
-        // The next index might not be initialized if the cardinality is in the process of increasing
-        // In this case the oldest observation is always in index 0
-        if (!_initialized) {
-            (_observationTimestamp, , , ) = this.observations(0);
-        }
-
-        _secondsAgo = uint32(block.timestamp) - _observationTimestamp;
-    }
-
-    /**
      * @notice Update the synthetic RD price
      * @param  _lastBalancesWad The last balances of the pool
      */
@@ -409,7 +425,7 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
         (uint16 observationIndex, uint16 observationCardinality) = observations.write(
             oracleState.observationIndex,
             _blockTimestamp(),
-            oracleState.tick,
+            _oldTick,
             0,
             oracleState.observationCardinality,
             oracleState.observationCardinalityNext
@@ -535,18 +551,12 @@ contract RDOracle is IRDOracle, BaseHooks, VaultGuard {
      * @return The median value. For an even number of elements, returns the lower of the two middle elements.
      */
     function _calculateMedian(uint256[] memory _arr) internal pure returns (uint256) {
-        uint256 _n = _arr.length;
-
-        if (_n == 0) {
-            revert Oracle_MedianCalculationError();
-        }
-        if (_n == 1) {
-            return _arr[0];
-        }
-
-        _arr.sort();
-
-        return _arr[(_n - 1) / 2];
+        uint256 a = _arr[0];
+        uint256 b = _arr[1];
+        uint256 c = _arr[2];
+        if ((a >= b && a <= c) || (a >= c && a <= b)) return a;
+        if ((b >= a && b <= c) || (b >= c && b <= a)) return b;
+        return c;
     }
 
     /**

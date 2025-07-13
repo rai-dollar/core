@@ -22,18 +22,20 @@ contract RDOracleTestHelper is RDOracle {
         )
     {}
 
-    // Expose the internal _calculateMedian function for testing
     function testCalculateMedian(uint256[] memory _arr) external pure returns (uint256) {
         return _calculateMedian(_arr);
     }
 
-    // Expose other internal functions if needed
     function testConvertPriceToSqrtPriceX96(uint256 _price) external pure returns (uint160) {
         return _convertPriceToSqrtPriceX96(_price);
     }
 
     function testConvertSqrtPriceX96ToPrice(uint160 _sqrtPriceX96) external pure returns (uint256) {
         return _convertSqrtPriceX96ToPrice(_sqrtPriceX96);
+    }
+
+    function testUpdateSyntheticRDPrice(uint256[] memory _lastBalancesWad) external {
+        _updateSyntheticRDPrice(_lastBalancesWad);
     }
 
     function testCalculatePartialDerivative(
