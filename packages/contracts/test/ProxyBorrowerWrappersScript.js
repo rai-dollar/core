@@ -14,7 +14,8 @@ const timeValues = testHelpers.TimeValues
 const ZERO_ADDRESS = th.ZERO_ADDRESS
 const assertRevert = th.assertRevert
 
-const GAS_PRICE = 10000000
+//const GAS_PRICE = 10000000
+const GAS_PRICE = 100000000000
 
 
 const {

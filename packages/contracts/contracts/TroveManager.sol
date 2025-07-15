@@ -349,7 +349,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         IActivePool _activePool,
         IDefaultPool _defaultPool,
         address _borrower,
-        uint _LUSDInSPForOffsets
+        uint _LUSDInSPForOffsets //norm
     )
         internal
         returns (LiquidationValues memory singleLiquidation)
@@ -1320,6 +1320,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         lastAccRateUpdateTime = block.timestamp;
         emit AccInterestRateUpdated(newAccRate);
     }
+
     function _drip(uint256 interestRate) internal {
 
         // can't distributetoSP() when empty
@@ -1330,6 +1331,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         if (secondsPassed == 0) {
             return;
         }
+
 
         uint256 existingAccRate = accumulatedRate;
 

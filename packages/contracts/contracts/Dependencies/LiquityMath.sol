@@ -29,6 +29,26 @@ library LiquityMath {
         return (_a >= _b) ? _a : _b;
     }
 
+
+    /**
+     * @notice Safely subtracts two uint256 values and returns a signed int256 result.
+     * @dev Reverts if the difference overflows int256.
+     * @param a The minuend (left side of subtraction).
+     * @param b The subtrahend (right side of subtraction).
+     * @return result Signed result of (a - b) as int256.
+     */
+    function safeSignedSub(uint256 a, uint256 b) internal pure returns (int256 result) {
+        if (a >= b) {
+            uint256 diff = a.sub(b);
+            require(diff <= uint256(type(int256).max), "SignedSafeMath: overflow");
+            return int256(diff);
+        } else {
+            uint256 diff = b.sub(a);
+            require(diff <= uint256(type(int256).max), "SignedSafeMath: overflow");
+            return -int256(diff);
+        }
+    }
+
     /* 
     * Multiply two decimal numbers and use normal rounding rules:
     * -round product up if 19'th mantissa digit >= 5

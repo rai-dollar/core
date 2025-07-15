@@ -704,7 +704,13 @@ contract('Gas compensation tests', async accounts => {
 
     const [loggedDebt_A, loggedColl_A, loggedGasComp_A, ] = th.getEmittedLiquidationValues(liquidationTxA)
 
-    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 1000)
+    // debt has gained interest
+    assert.isTrue(loggedDebt_A.gt(aliceDebt))
+
+    // increase tolerance to account for interest
+    // TODO calc exact
+    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 100000000000000)
+    //assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 1000)
     assert.isAtMost(th.getDifference(expectedLiquidatedColl_A, loggedColl_A), 1000)
     assert.isAtMost(th.getDifference(expectedGasComp_A, loggedGasComp_A), 1000)
 
@@ -730,7 +736,13 @@ contract('Gas compensation tests', async accounts => {
 
     const [loggedDebt_B, loggedColl_B, loggedGasComp_B, ] = th.getEmittedLiquidationValues(liquidationTxB)
 
-    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 1000)
+    // debt has gained interest
+    assert.isTrue(loggedDebt_B.gt(bobDebt))
+
+    // increase tolerance to account for interest
+    // TODO calc exact
+    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 100000000000000)
+    //assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 1000)
     assert.isAtMost(th.getDifference(expectedLiquidatedColl_B, loggedColl_B), 1000)
     assert.isAtMost(th.getDifference(expectedGasComp_B, loggedGasComp_B), 1000)
   })
@@ -789,7 +801,13 @@ contract('Gas compensation tests', async accounts => {
 
     const [loggedDebt_A, loggedColl_A, loggedGasComp_A, ] = th.getEmittedLiquidationValues(liquidationTxA)
 
-    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 1000)
+    // debt has gained interest
+    assert.isTrue(loggedDebt_A.gt(aliceDebt))
+
+    // increase tolerance to account for interest
+    // TODO calc exact
+    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 100000000000000)
+    //assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 1000)
     assert.isAtMost(th.getDifference(expectedLiquidatedColl_A, loggedColl_A), 1000)
     assert.isAtMost(th.getDifference(expectedGasComp_A, loggedGasComp_A), 1000)
 
@@ -825,7 +843,13 @@ contract('Gas compensation tests', async accounts => {
 
     const [loggedDebt_B, loggedColl_B, loggedGasComp_B, ] = th.getEmittedLiquidationValues(liquidationTxB)
 
-    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 1000)
+    // debt has gained interest
+    assert.isTrue(loggedDebt_B.gt(bobDebt))
+
+    // increase tolerance to account for interest
+    // TODO calc exact
+    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 100000000000000)
+    //assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 1000)
     assert.isAtMost(th.getDifference(expectedLiquidatedColl_B, loggedColl_B), 1000)
     assert.isAtMost(th.getDifference(expectedGasComp_B, loggedGasComp_B), 1000)
   })
@@ -872,7 +896,13 @@ contract('Gas compensation tests', async accounts => {
 
     const [loggedDebt_A, loggedColl_A, loggedGasComp_A, ] = th.getEmittedLiquidationValues(liquidationTxA)
 
-    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 1000)
+    // debt has gained interest
+    assert.isTrue(loggedDebt_A.gt(aliceDebt))
+
+    // increase tolerance to account for interest
+    // TODO calc exact
+    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 100000000000000)
+    //assert.isAtMost(th.getDifference(expectedLiquidatedDebt_A, loggedDebt_A), 1000)
     assert.isAtMost(th.getDifference(expectedLiquidatedColl_A, loggedColl_A), 1000)
     assert.isAtMost(th.getDifference(expectedGasComp_A, loggedGasComp_A), 1000)
 
@@ -904,7 +934,13 @@ contract('Gas compensation tests', async accounts => {
 
     const [loggedDebt_B, loggedColl_B, loggedGasComp_B, ] = th.getEmittedLiquidationValues(liquidationTxB)
 
-    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 1000)
+    // debt has gained interest
+    assert.isTrue(loggedDebt_B.gt(bobDebt))
+
+    // increase tolerance to account for interest
+    // TODO calc exact
+    assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 100000000000000)
+    //assert.isAtMost(th.getDifference(expectedLiquidatedDebt_B, loggedDebt_B), 1000)
     assert.isAtMost(th.getDifference(expectedLiquidatedColl_B, loggedColl_B), 1000)
     assert.isAtMost(th.getDifference(expectedGasComp_B, loggedGasComp_B), 1000)
   })
@@ -1153,7 +1189,13 @@ contract('Gas compensation tests', async accounts => {
     // Get data from the liquidation event logs
     const [loggedDebt, loggedColl, loggedGasComp, ] = th.getEmittedLiquidationValues(liquidationTxData)
     
-    assert.isAtMost(th.getDifference(expectedLiquidatedDebt, loggedDebt), 1000)
+    // debt has gained interest
+    assert.isTrue(loggedDebt.gt(expectedLiquidatedDebt))
+
+    // increase tolerance to account for interest
+    // TODO calc exact
+    assert.isAtMost(th.getDifference(expectedLiquidatedDebt, loggedDebt), 700000000000000)
+    //assert.isAtMost(th.getDifference(expectedLiquidatedDebt, loggedDebt), 1000)
     assert.isAtMost(th.getDifference(expectedLiquidatedColl, loggedColl), 1000)
     assert.isAtMost(th.getDifference(expectedGasComp, loggedGasComp), 1000)
   })

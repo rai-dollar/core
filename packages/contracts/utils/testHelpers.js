@@ -1,3 +1,5 @@
+const { ethers } = require("hardhat")
+
 
 const BN = require('bn.js')
 const LockupContract = artifacts.require(("./LockupContract.sol"))
@@ -37,6 +39,8 @@ const TimeValues = {
   MINUTES_IN_ONE_MONTH:   60 * 24 * 30,
   MINUTES_IN_ONE_YEAR:    60 * 24 * 365
 }
+
+
 
 class TestHelper {
 
@@ -343,8 +347,8 @@ class TestHelper {
   }
 
   // Subtracts the borrowing fee
-  static async getNetBorrowingAmount(contracts, debtWithFee) {
-    return debtWithFee
+  static async getNetBorrowingAmount(contracts, debt) {
+    return debt
     // there is no initial borrow fee anymore
     //const borrowingRate = await contracts.troveManager.getBorrowingRateWithDecay()
     //return this.toBN(debtWithFee).mul(MoneyValues._1e18BN).div(MoneyValues._1e18BN.add(borrowingRate))
@@ -388,6 +392,18 @@ class TestHelper {
       }
     }
     throw ("The transaction logs do not contain a redemption event")
+  }
+  static getEmittedDripValues(tx) {
+    for (let i = 0; i < tx.logs.length; i++) {
+      if (tx.logs[i].event === "Drip") {
+
+        const stakePayment = tx.logs[i].args[0]
+        const spPayment = tx.logs[i].args[1]
+
+        return [stakePayment, spPayment]
+      }
+    }
+    throw ("The transaction logs do not contain a drip event")
   }
 
   static getEmittedParUpdateValues(updateTx) {
@@ -662,7 +678,320 @@ class TestHelper {
     return { newColl, newDebt }
   }
 
- 
+  static async depositorValuesAfterLiquidation(contracts, tx, startDeposits, totalDeposits = null) {
+      // retursn eth *gains* concatenated with SP deposits
+      // does *not* return final eth balance, ie sp.getDepositorGain()
+      const [,drip] = await this.getEmittedDripValues(tx)
+      const stabilityPoolInterface = (await ethers.getContractAt("StabilityPool", contracts.stabilityPool.address)).interface;
+      var collToAdd = this.toBN(await this.getRawEventArgByName(tx, stabilityPoolInterface, contracts.stabilityPool.address, "Offset", "collToAdd"))
+      var debtToOffset = this.toBN(await this.getRawEventArgByName(tx, stabilityPoolInterface, contracts.stabilityPool.address, "Offset", "debtToOffset"))
+
+      // Sometimes sum of deposits is not exactly equaling deposits, possibly exacerbated with increasing scales
+      // In this case, allow totalDeposits to be passed in and not derived from individual deposits
+      //
+      if (totalDeposits == null) {
+          totalDeposits = web3.utils.toBN('0');
+          startDeposits.forEach( num => {
+              totalDeposits = totalDeposits.add(num);
+          })
+      }
+
+      // distribute drip gain
+      const drippedDeposits = []
+      for (const dep of startDeposits) {
+          // how much depositor gets from drip
+          const depositorDrip = drip.mul(dep).div(totalDeposits)
+          const dripDeposit = dep.add(depositorDrip)
+          drippedDeposits.push(dripDeposit)
+      }
+
+      const totalDepositsWithDrip = totalDeposits.add(drip)
+
+      // Logic from SP.getMaxAmountToOffset()
+      // TODO: is this needed? Offset event above is after SP.getMaxAmountToOffset() check in troveManager
+      /*
+      const amountToLeave = totalDepositsWithDrip < this.toBN(this.dec(1,18)) ? totalDepositsWithDrip: this.toBN(this.dec(1,18));
+      const available = totalDepositsWithDrip.sub(amountToLeave)
+      if (debtToOffset.gte(available)) {
+          debtToOffset = available
+      }
+      */
+
+      // distribute collateral
+      const finalGains = []
+      const finalDeposits = []
+      for (const dep of drippedDeposits) {
+
+          // depositor loss from liquidation
+          const depositorGain = collToAdd.mul(dep).div(totalDepositsWithDrip.add(this.toBN('1')))
+          const depositorLoss = debtToOffset.mul(dep).div(totalDepositsWithDrip)
+
+          // depositor deposit remaining after drip and loss from liquidation offset
+          const finalDeposit = dep.sub(depositorLoss)
+
+          finalGains.push(depositorGain)
+          finalDeposits.push(finalDeposit)
+      }
+
+      return finalGains.concat(finalDeposits)
+  }
+  static async depositorValuesAfterTwoLiquidations(contracts, tx1, tx2, startDeposits, totalDeposits = null, totalDeposits1 = null) {
+      // retursn eth *gains* concatenated with SP deposits
+      // does *not* return final eth balance, ie sp.getDepositorGain()
+      const gainsDeposits1 = await this.depositorValuesAfterLiquidation(contracts, tx1, startDeposits, totalDeposits)
+
+      const deposits1 = gainsDeposits1.slice(gainsDeposits1.length/2)
+      const gains1 = gainsDeposits1.slice(0, gainsDeposits1.length/2)
+
+      const gainsDeposits2 = await this.depositorValuesAfterLiquidation(contracts, tx2, deposits1, totalDeposits1)
+
+      const deposits2 = gainsDeposits2.slice(gainsDeposits2.length/2)
+      const gains2 = gainsDeposits2.slice(0, gainsDeposits2.length/2)
+
+      if (gains1.length != gains2.length) {
+          throw new Error("Gains arrays are not equal length");
+      }
+
+      const gainsSum = gains1.map(function(v, i) {
+          return v.add(gains2[i]);
+      })
+
+      return gainsSum.concat(deposits2)
+
+  }
+
+  static async depositorValuesAfterThreeLiquidations(contracts, tx1, tx2, tx3, startDeposits, totalDeposits = null, totalDeposits1 = null, totalDeposits2 = null) {
+      // retursn eth *gains* concatenated with SP deposits
+      // does *not* return final eth balance, ie sp.getDepositorGain()
+      const gainsDeposits1 = await this.depositorValuesAfterLiquidation(contracts, tx1, startDeposits, totalDeposits)
+
+      const deposits1 = gainsDeposits1.slice(gainsDeposits1.length/2)
+      const gains1 = gainsDeposits1.slice(0, gainsDeposits1.length/2)
+
+      const gainsDeposits2 = await this.depositorValuesAfterLiquidation(contracts, tx2, deposits1, totalDeposits1)
+
+      const deposits2 = gainsDeposits2.slice(gainsDeposits2.length/2)
+      const gains2 = gainsDeposits2.slice(0, gainsDeposits2.length/2)
+
+      const gainsDeposits3 = await this.depositorValuesAfterLiquidation(contracts, tx3, deposits2, totalDeposits2)
+
+      const deposits3 = gainsDeposits3.slice(gainsDeposits3.length/2)
+      const gains3 = gainsDeposits3.slice(0, gainsDeposits3.length/2)
+
+      if (gains1.length != gains2.length) {
+          throw new Error("Gains arrays are not equal length");
+      }
+      if (gains2.length != gains3.length) {
+          throw new Error("Gains arrays are not equal length");
+      }
+
+      const gainsSum = gains1.map(function(v, i) {
+          return v.add(gains2[i]).add(gains3[i]);
+      })
+
+      return gainsSum.concat(deposits3)
+
+  }
+
+  static async ethGainsAfterLiquidation(contracts, tx, startDeposits, totalDeposits = null) {
+      const [,drip] = await this.getEmittedDripValues(tx)
+      const stabilityPoolInterface = (await ethers.getContractAt("StabilityPool", contracts.stabilityPool.address)).interface;
+      var collToAdd = this.toBN(await this.getRawEventArgByName(tx, stabilityPoolInterface, contracts.stabilityPool.address, "Offset", "collToAdd"))
+      var debtToOffset = this.toBN(await this.getRawEventArgByName(tx, stabilityPoolInterface, contracts.stabilityPool.address, "Offset", "debtToOffset"))
+
+      // Sometimes sum of deposits is not exactly equaling deposits, possibly exacerbated with increasing scales
+      // In this case, allow totalDeposits to be passed in and not derived from individual deposits
+      //
+      if (totalDeposits == null) {
+          totalDeposits = web3.utils.toBN('0');
+          startDeposits.forEach( num => {
+              totalDeposits = totalDeposits.add(num);
+          })
+      }
+
+      // distribute drip gain
+      const drippedDeposits = []
+      for (const dep of startDeposits) {
+          // how much depositor gets from drip
+          const depositorDrip = drip.mul(dep).div(totalDeposits)
+          const dripDeposit = dep.add(depositorDrip)
+          drippedDeposits.push(dripDeposit)
+      }
+
+      const totalDepositsWithDrip = totalDeposits.add(drip)
+
+      // Logic from SP.getMaxAmountToOffset()
+      // TODO: is this needed? Offset event above is after SP.getMaxAmountToOffset() check in troveManager
+      /*
+      const amountToLeave = totalDepositsWithDrip < this.toBN(this.dec(1,18)) ? totalDepositsWithDrip: this.toBN(this.dec(1,18));
+      const available = totalDepositsWithDrip.sub(amountToLeave)
+      if (debtToOffset.gte(available)) {
+          debtToOffset = available
+      }
+      */
+
+      // distribute collateral
+      const finalColls = []
+      const finalDeposits = []
+      for (const dep of drippedDeposits) {
+
+          // depositor loss from liquidation
+          const depositorGain = collToAdd.mul(dep).div(totalDepositsWithDrip.add(this.toBN('1')))
+          const depositorLoss = debtToOffset.mul(dep).div(totalDepositsWithDrip)
+
+          // depositor deposit remaining after drip and loss from liquidation offset
+          const finalDeposit = dep.sub(depositorLoss)
+
+          finalColls.push(depositorGain)
+          finalDeposits.push(finalDeposit)
+      }
+
+      return [finalColls, finalDeposits]
+
+  }
+
+  static async ethGainsAfterTwoLiquidations(contracts, tx1, tx2, startDeposits, totalDeposits = null, totalDeposits1 = null) {
+      const [colls1, deposits1] = await this.ethGainsAfterLiquidation(contracts, tx1, startDeposits, totalDeposits)
+
+      const [colls2, deposits2] = await this.ethGainsAfterLiquidation(contracts, tx2, deposits1, totalDeposits1)
+
+      if (colls1.length != colls2.length) {
+          throw new Error("Collaterals arrays are not equal length");
+      }
+
+      return colls1.map(function(v, i) {
+          return v.add(colls2[i]);
+      })
+
+  }
+
+  static async ethGainsAfterThreeLiquidations(contracts, tx1, tx2, tx3, startDeposits, totalDeposits = null, totalDeposits1 = null, totalDeposits2 = null) {
+      const [colls1, deposits1] = await this.ethGainsAfterLiquidation(contracts, tx1, startDeposits, totalDeposits)
+
+      const [colls2, deposits2] = await this.ethGainsAfterLiquidation(contracts, tx2, deposits1, totalDeposits1)
+
+      const [colls3, deposits3] = await this.ethGainsAfterLiquidation(contracts, tx3, deposits2, totalDeposits2)
+
+      if (colls1.length != colls2.length) {
+          throw new Error("Collaterals arrays are not equal length");
+      }
+      if (colls2.length != colls3.length) {
+          throw new Error("Collaterals arrays are not equal length");
+      }
+
+      return colls1.map(function(v, i) {
+          return v.add(colls2[i]).add(colls3[i]);
+      })
+
+  }
+
+  static async depositsAfterLiquidation(contracts, tx, startDeposits, totalDeposits = null) {
+      const [,drip] = await this.getEmittedDripValues(tx)
+      const stabilityPoolInterface = (await ethers.getContractAt("StabilityPool", contracts.stabilityPool.address)).interface;
+      var offsetDebt = this.toBN(await this.getRawEventArgByName(tx, stabilityPoolInterface, contracts.stabilityPool.address, "Offset", "debtToOffset"))
+
+      // Sometimes sum of deposits is not exactly equaling deposits, possibly exacerbated with increasing scales
+      // In this case, allow totalDeposits to be passed in and not derived from individual deposits
+      //
+      if (totalDeposits == null) {
+          totalDeposits = web3.utils.toBN('0');
+          startDeposits.forEach( num => {
+              totalDeposits = totalDeposits.add(num);
+          })
+      }
+
+      // distribute drip gain
+      const drippedDeposits = []
+      for (const dep of startDeposits) {
+          // how much depositor gets from drip
+          const depositorDrip = drip.mul(dep).div(totalDeposits)
+          const dripDeposit = dep.add(depositorDrip)
+          drippedDeposits.push(dripDeposit)
+      }
+
+      const totalDepositsWithDrip = totalDeposits.add(drip)
+
+      // Logic from SP.getMaxAmountToOffset()
+      // TODO: is this needed? Offset event above is after SP.getMaxAmountToOffset() check in troveManager
+      /*
+      const amountToLeave = totalDepositsWithDrip < this.toBN(this.dec(1,18)) ? totalDepositsWithDrip: this.toBN(this.dec(1,18));
+      const available = totalDepositsWithDrip.sub(amountToLeave)
+      if (offsetDebt.gte(available)) {
+          offsetDebt = available
+      }
+      */
+
+      // distribute debt loss
+      const finalDeposits = []
+      for (const dep of drippedDeposits) {
+
+          // depositor loss from liquidation
+          const depositorLoss = offsetDebt.mul(dep).div(totalDepositsWithDrip.add(this.toBN('1')))
+          //const depositorLoss = offsetDebt.mul(dep).div(totalDepositsWithDrip)
+
+          // depositor deposit remaining after drip and loss from liquidation offset
+          const finalDeposit = dep.sub(depositorLoss)
+
+          finalDeposits.push(finalDeposit)
+      }
+
+      return finalDeposits
+
+  }
+
+  static async depositsAfterTwoLiquidations(contracts, tx1, tx2, startDeposits, totalDeposits = null, totalDeposits2 = null) {
+      const startDeposits2 = await this.depositsAfterLiquidation(contracts, tx1, startDeposits, totalDeposits)
+
+      const finalDeposits = await this.depositsAfterLiquidation(contracts, tx2, startDeposits2, totalDeposits2)
+
+      return finalDeposits
+
+  }
+
+  static async depositsAfterThreeLiquidations(contracts, tx1, tx2, tx3, startDeposits, totalDeposits = null, totalDeposits2 = null, totalDeposits3 = null) {
+      const startDeposits2 = await this.depositsAfterLiquidation(contracts, tx1, startDeposits, totalDeposits)
+
+      const startDeposits3 = await this.depositsAfterLiquidation(contracts, tx2, startDeposits2, totalDeposits2)
+
+      const finalDeposits = await this.depositsAfterLiquidation(contracts, tx3, startDeposits3, totalDeposits3)
+
+      return finalDeposits
+
+  }
+
+  static async getNewPAfterLiquidation(contracts, tx, P_initial, totalDeposits, lastError) {
+      // TODO: consider scale changes
+      // WARNING: values will be wrong when scale changes
+      // In liquidate() there are two P updates
+      // first for drip, then for offset
+      
+      const [,drip] = await this.getEmittedDripValues(tx)
+      const stabilityPoolInterface = (await ethers.getContractAt("StabilityPool", contracts.stabilityPool.address)).interface;
+      var offsetDebt = this.toBN(await this.getRawEventArgByName(tx, stabilityPoolInterface, contracts.stabilityPool.address, "Offset", "debtToOffset"))
+
+      const totalDepositsWithDrip = totalDeposits.add(drip)
+
+      // Logic from SP.getMaxAmountToOffset()
+      const amountToLeave = totalDepositsWithDrip < this.toBN(this.dec(1,18)) ? totalDepositsWithDrip: this.toBN(this.dec(1,18));
+      const available = totalDepositsWithDrip.sub(amountToLeave)
+      if (offsetDebt.gte(available)) {
+          offsetDebt = available
+      }
+
+      // Logic from SP._computeRewardsPerUnitStaked()
+      var lossNumerator = 0
+      if (offsetDebt.mul(this.toBN(this.dec(1,18))).lte(lastError)) {
+          lossNumerator = this.toBN('0')
+      } else {
+          lossNumerator = offsetDebt.mul(this.toBN(this.dec(1,18))).sub(lastError)
+      }
+
+      const P_drip = this.toBN(this.dec(1,18)).add(drip.mul(this.toBN(this.dec(1,18))).div(totalDeposits))
+      const P_liq = this.toBN(this.dec(1,18)).sub(lossNumerator.div(totalDepositsWithDrip).add(this.toBN('1')))
+      const P_final = P_initial.mul(P_drip).mul(P_liq).div(this.toBN(this.dec(1,36)))
+      return P_final
+  }
+
   // --- BorrowerOperations gas functions ---
 
   static async openTrove_allAccounts(accounts, contracts, ETHAmount, LUSDAmount) {

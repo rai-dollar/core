@@ -371,7 +371,7 @@ contract('Relayer', async accounts => {
 
   })
 
-  it('getParAndRate(): par and rate not updated if called too early', async () => {
+  it('getRateAndPar(): par and rate not updated if called too early', async () => {
     parStaleness = await relayer.MAX_PAR_STALENESS();
     rateStaleness = await relayer.MAX_RATE_STALENESS();
 
@@ -380,7 +380,7 @@ contract('Relayer', async accounts => {
     await marketOracle.setPrice(ONE_DOLLAR);
 
     // update par
-    await relayer.getParAndRate();
+    await relayer.getRateAndPar();
     parUpdateTime = await relayer.lastParUpdateTime();
     rateUpdateTime = await relayer.lastRateUpdateTime();
     assert.isTrue(parUpdateTime.eq(await time.latest()));
@@ -397,7 +397,7 @@ contract('Relayer', async accounts => {
 
     // set different market price
     await marketOracle.setPrice(ONE_DOLLAR.addn(10000));
-    await relayer.getParAndRate();
+    await relayer.getRateAndPar();
 
     // par is still previous value
     assert((await relayer.par()).eq(ONE_DOLLAR));
@@ -410,7 +410,7 @@ contract('Relayer', async accounts => {
 
   })
 
-  it('getParAndRate(): par and rate updated when stale', async () => {
+  it('getRateAndPar(): par and rate updated when stale', async () => {
     parStaleness = await relayer.MAX_PAR_STALENESS();
     rateStaleness = await relayer.MAX_RATE_STALENESS();
 
@@ -422,7 +422,7 @@ contract('Relayer', async accounts => {
     await marketOracle.setPrice(ONE_DOLLAR);
 
     // update par and rate
-    tx = await relayer.getParAndRate();
+    tx = await relayer.getRateAndPar();
 
     const event = tx.logs.find(e => e.event === 'RateUpdated');
 
@@ -447,7 +447,7 @@ contract('Relayer', async accounts => {
 
     // set different market price
     await marketOracle.setPrice(ONE_DOLLAR.add(toBN(dec(1, 17))));
-    tx = await relayer.getParAndRate();
+    tx = await relayer.getRateAndPar();
 
     newPar = await relayer.par();
     newRate = await relayer.rate();
@@ -457,7 +457,7 @@ contract('Relayer', async accounts => {
     if (rateBias.eq(toBN(0))) {
         assert(newRate.eq(firstRate));
     } else {
-        assert(newRate.gt(firstRate));
+        assert(newRate.lt(firstRate));
     }
 
     // update time has changed
@@ -528,7 +528,7 @@ contract('Relayer', async accounts => {
     assert.isTrue(thisUpdateTime.gt(updateTime));
 
   })
-  it('updateParAndRate(): par and rate updated even when not stale', async () => {
+  it('updateRateAndPar(): rate and par updated even when not stale', async () => {
     parStaleness = await relayer.MAX_PAR_STALENESS();
     rateStaleness = await relayer.MAX_RATE_STALENESS();
 
@@ -540,7 +540,7 @@ contract('Relayer', async accounts => {
     await marketOracle.setPrice(ONE_DOLLAR);
 
     // update par and rate
-    tx = await relayer.updateParAndRate();
+    tx = await relayer.updateRateAndPar();
 
     const event = tx.logs.find(e => e.event === 'RateUpdated');
 
@@ -563,7 +563,7 @@ contract('Relayer', async accounts => {
 
     // set different market price
     await marketOracle.setPrice(ONE_DOLLAR.add(toBN(dec(1, 17))));
-    await relayer.updateParAndRate();
+    await relayer.updateRateAndPar();
 
     newPar = await relayer.par();
     newRate = await relayer.rate();
@@ -573,7 +573,7 @@ contract('Relayer', async accounts => {
     if (rateBias.eq(toBN(0))) {
         assert(newRate.eq(firstRate));
     } else {
-        assert(newRate.gt(firstRate));
+        assert(newRate.lt(firstRate));
     }
 
     // update time has changed
@@ -674,14 +674,14 @@ contract('Relayer', async accounts => {
     if (rateBias.eq(toBN(0))) {
         assert(newRate.eq(firstRate));
     } else {
-        assert(newRate.gt(firstRate));
+        assert(newRate.lt(firstRate));
     }
 
     // update time has changed
     thisUpdateTime = await relayer.lastRateUpdateTime();
     assert.isTrue(thisUpdateTime.gt(updateTime));
   })
-  it('updateParAndRate(): par and rate updated when not stale', async () => {
+  it('updateRateAndPar(): par and rate updated when not stale', async () => {
     parStaleness = await relayer.MAX_PAR_STALENESS();
     rateStaleness = await relayer.MAX_RATE_STALENESS();
 
@@ -707,7 +707,7 @@ contract('Relayer', async accounts => {
     await marketOracle.setPrice(ONE_DOLLAR);
 
     // update par and rate
-    tx = await relayer.updateParAndRate();
+    tx = await relayer.updateRateAndPar();
 
     const event = tx.logs.find(e => e.event === 'RateUpdated');
 
@@ -732,7 +732,7 @@ contract('Relayer', async accounts => {
 
     // set different market price
     await marketOracle.setPrice(ONE_DOLLAR.add(toBN(dec(1, 17))));
-    tx = await relayer.updateParAndRate();
+    tx = await relayer.updateRateAndPar();
 
     newPar = await relayer.par();
     newRate = await relayer.rate();
@@ -742,7 +742,7 @@ contract('Relayer', async accounts => {
     if (rateBias.eq(toBN(0))) {
         assert(newRate.eq(firstRate));
     } else {
-        assert(newRate.gt(firstRate));
+        assert(newRate.lt(firstRate));
     }
 
     // update time has changed

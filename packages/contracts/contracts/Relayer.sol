@@ -129,11 +129,11 @@ contract Relayer is Ownable, CheckContract {
         scaledError = (error * int256(rampFactor)) / RATE_PRECISION_I;
     }
 
-    function rateIsStale() public returns (bool) {
+    function rateIsStale() public view returns (bool) {
         return block.timestamp - lastRateUpdateTime > MAX_RATE_STALENESS;
     }
 
-    function parIsStale() public returns (bool) {
+    function parIsStale() public view returns (bool) {
         return block.timestamp - lastParUpdateTime > MAX_PAR_STALENESS;
     }
 

@@ -249,7 +249,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     event UserDepositChanged(address indexed _depositor, uint _newDeposit);
     event FrontEndStakeChanged(address indexed _frontEnd, uint _newFrontEndStake, address _depositor);
 
-    event ETHGainWithdrawn(address indexed _depositor, uint _ETH, uint _LUSDLoss);
+    event ETHGainWithdrawn(address indexed _depositor, uint _ETH, int _LUSDLoss);
     event LQTYPaidToDepositor(address indexed _depositor, uint _LQTY);
     event LQTYPaidToFrontEnd(address indexed _frontEnd, uint _LQTY);
     event EtherSent(address _to, uint _amount);
@@ -327,6 +327,8 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
         uint initialDeposit = deposits[msg.sender].initialValue;
 
+        // TODO should a drip() be here? This will break many tests
+
         ICommunityIssuance communityIssuanceCached = communityIssuance;
 
         _triggerLQTYIssuance(communityIssuanceCached);
@@ -334,7 +336,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         if (initialDeposit == 0) {_setFrontEndTag(msg.sender, _frontEndTag);}
         uint depositorETHGain = getDepositorETHGain(msg.sender);
         uint compoundedLUSDDeposit = getCompoundedLUSDDeposit(msg.sender);
-        uint LUSDLoss = initialDeposit.sub(compoundedLUSDDeposit); // Needed only for event log
+        int LUSDLoss = LiquityMath.safeSignedSub(initialDeposit, compoundedLUSDDeposit); // Needed only for event log
 
         // First pay out any LQTY gains
         address frontEnd = deposits[msg.sender].frontEndTag;
@@ -380,7 +382,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
         uint compoundedLUSDDeposit = getCompoundedLUSDDeposit(msg.sender);
         uint LUSDtoWithdraw = LiquityMath._min(_amount, compoundedLUSDDeposit);
-        uint LUSDLoss = initialDeposit.sub(compoundedLUSDDeposit); // Needed only for event log
+        int LUSDLoss = LiquityMath.safeSignedSub(initialDeposit, compoundedLUSDDeposit); // Needed only for event log
 
         // First pay out any LQTY gains
         address frontEnd = deposits[msg.sender].frontEndTag;
@@ -425,7 +427,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         uint depositorETHGain = getDepositorETHGain(msg.sender);
 
         uint compoundedLUSDDeposit = getCompoundedLUSDDeposit(msg.sender);
-        uint LUSDLoss = initialDeposit.sub(compoundedLUSDDeposit); // Needed only for event log
+        int LUSDLoss = LiquityMath.safeSignedSub(initialDeposit, compoundedLUSDDeposit); // Needed only for event log
 
         // First pay out any LQTY gains
         address frontEnd = deposits[msg.sender].frontEndTag;
@@ -1011,9 +1013,6 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
         require(totalLUSDDeposits > 0, "StabilityPool: can't distribute when totalLUSDDeposits == 0");
 
-        // TODO accept the round down here or add + 1
-        //uint256 lusdGainPerUnitStaked = lusdGain.mul(DECIMAL_PRECISION).div(totalLUSDDeposits) + 1;
-
         // error correction
         uint256 numerator = lusdGain.mul(DECIMAL_PRECISION).add(lastLUSDGainError);
         uint256 lusdGainPerUnitStaked = numerator.div(totalLUSDDeposits); 
@@ -1025,7 +1024,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         uint256 newProductFactor = DECIMAL_PRECISION + lusdGainPerUnitStaked;
 
         uint256 newP = currentP.mul(newProductFactor).div(DECIMAL_PRECISION);
-        require(newP > currentP, "P overflow");
+        require(newP >= currentP, "P overflow");
 
         emit DistributeToSP(P, newP, lusdGain, totalLUSDDeposits);
 

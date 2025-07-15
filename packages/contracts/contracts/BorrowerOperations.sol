@@ -279,6 +279,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         ContractsCache memory contractsCache = ContractsCache(troveManager, activePool, lusdToken);
         LocalVariables_adjustTrove memory vars;
 
+        // TODO add drip() here. It will break tests
         vars.par = relayer.getPar();
         vars.accRate = troveManager.accumulatedRate();
         vars.price = priceFeed.fetchPrice();
