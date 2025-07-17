@@ -7,6 +7,7 @@ import "./IStabilityPool.sol";
 import "./ILUSDToken.sol";
 import "./ILQTYToken.sol";
 import "./ILQTYStaking.sol";
+import "./IRelayer.sol";
 
 
 // Common interface for the Trove Manager.

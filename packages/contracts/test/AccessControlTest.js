@@ -549,10 +549,10 @@ contract('Access Control: Liquity functions with the caller restricted to Liquit
          assert.include(err.message, "Caller is not the MarketOracle")
       }
     })
-    it("updateParAndRateWithMarket(): reverts when caller is not the MarketOracle contract", async () => {
+    it("updateRateAndParWithMarket(): reverts when caller is not the MarketOracle contract", async () => {
       // Attempt call from alice
       try {
-        const txAlice = await relayer.updateParAndRateWithMarket(dec(1000,18), { from: alice })
+        const txAlice = await relayer.updateRateAndParWithMarket(dec(1000,18), dec(1000,18), { from: alice })
         
       } catch (err) {
          assert.include(err.message, "revert")

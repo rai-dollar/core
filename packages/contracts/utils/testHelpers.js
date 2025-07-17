@@ -286,9 +286,25 @@ class TestHelper {
   // stored in Liquity, or the current Chainlink ETHUSD price, etc.
 
 
-  static async checkRecoveryMode(contracts) {
+  static async checkRecoveryModeContract(contracts) {
     const price = await contracts.priceFeedTestnet.getPrice()
     return contracts.troveManager.checkRecoveryMode(price)
+  }
+  /*
+           uint entireSystemColl = getEntireSystemColl();
+        uint entireSystemDebt = getEntireSystemDebt(_accRate);
+        uint par = relayer.par();
+    
+        TCR = LiquityMath._computeCR(entireSystemColl, entireSystemDebt, _price, par);
+
+        return TCR;
+  */
+  static async checkRecoveryMode(contracts) {
+    const ccr = await contracts.troveManager.CCR()
+    const price = await contracts.priceFeedTestnet.getPrice()
+    const tcr = await contracts.troveManager.getTCR(price)
+
+    return tcr.lt(ccr)
   }
 
   static async getTCR(contracts) {
@@ -1434,12 +1450,12 @@ class TestHelper {
     }
     return this.getGasMetrics(gasCostList)
   }
-
   static async performRedemptionTx(redeemer, price, contracts, LUSDAmount, maxFee = 0, gasPrice_toUse = 0) {
     const redemptionhint = await contracts.hintHelpers.getRedemptionHints(LUSDAmount, price, gasPrice_toUse)
 
     const firstRedemptionHint = redemptionhint[0]
     const partialRedemptionNewICR = redemptionhint[1]
+    //console.log("partialRedemptionNewICR", partialRedemptionNewICR.toString())
 
     const {
       hintAddress: approxPartialRedemptionHint,

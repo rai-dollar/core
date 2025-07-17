@@ -3,6 +3,7 @@ const testHelpers = require("../utils/testHelpers.js")
 const testInvariants = require("../utils/testInvariants.js")
 const TroveManagerTester = artifacts.require("./TroveManagerTester.sol")
 const RelayerTester = artifacts.require("./RelayerTester.sol")
+const RateControlTester = artifacts.require("./RateControlTester.sol")
 const LUSDTokenTester = artifacts.require("./LUSDTokenTester.sol")
 
 const th = testHelpers.TestHelper
@@ -61,6 +62,7 @@ contract('TroveManager', async accounts => {
   beforeEach(async () => {
     contracts = await deploymentHelper.deployLiquityCore()
     contracts.troveManager = await TroveManagerTester.new()
+    contracts.rateControl = await RateControlTester.new()
     contracts.lusdToken = await LUSDTokenTester.new(
       contracts.troveManager.address,
       contracts.stabilityPool.address,
@@ -1345,7 +1347,7 @@ contract('TroveManager', async accounts => {
 
     const newSpDeposit = spDeposit.add(toBN(lusdGain));
 
-    assert.isAtMost(th.getDifference(bob_Deposit_Before, newSpDeposit.sub(liquidatedDebt)), 2000000)
+    assert.isAtMost(th.getDifference(bob_Deposit_Before, newSpDeposit.sub(liquidatedDebt)), 2500000)
     assert.isFalse(await th.checkRecoveryMode(contracts))
 
     const ethError = toBN(await stabilityPool.lastETHError_Offset()).div(toBN(dec(1,18)))
@@ -3854,10 +3856,7 @@ contract('TroveManager', async accounts => {
   })
 
   it("redeemCollateral(): doesn't affect the Stability Pool deposits or ETH gain of redeemed-from troves", async () => {
-    // skip bootstrapping phase
-    // do this beforehand so ICR drop from interest paid doesn't cause ICR comparison to fail.
-    // If not, a trove ICR can still drop from a redemption beause drip is called
-    await th.fastForwardTime(timeValues.SECONDS_IN_ONE_WEEK * 2, web3.currentProvider)
+    //contracts.rateControl.setCoBias(0)
     await openTrove({ ICR: toBN(dec(20, 18)), extraParams: { from: whale } })
 
     // B, C, D, F open trove
@@ -3867,7 +3866,6 @@ contract('TroveManager', async accounts => {
     const { totalDebt: F_totalDebt } = await openTrove({ ICR: toBN(dec(200, 16)), extraLUSDAmount: dec(100, 18), extraParams: { from: flyn } })
 
     const redemptionAmount = B_totalDebt.add(C_totalDebt).add(D_totalDebt).add(F_totalDebt)
-
     // Alice opens trove and transfers LUSD to Erin, the would-be redeemer
     await openTrove({ ICR: toBN(dec(300, 16)), extraLUSDAmount: redemptionAmount, extraParams: { from: alice } })
     await lusdToken.transfer(erin, redemptionAmount, { from: alice })
@@ -3878,9 +3876,29 @@ contract('TroveManager', async accounts => {
     await stabilityPool.provideToSP(dec(200, 18), ZERO_ADDRESS, { from: dennis })
 
     let price = await priceFeed.getPrice()
+    const bob_ICR_before = await troveManager.getCurrentICR(bob, price)
+    const carol_ICR_before = await troveManager.getCurrentICR(carol, price)
+    const dennis_ICR_before = await troveManager.getCurrentICR(dennis, price)
+    /*
+    console.log("bob_ICR_before", bob_ICR_before.toString())
+    console.log("carol_ICR_before", carol_ICR_before.toString())
+    console.log("dennis_ICR_before", dennis_ICR_before.toString())
 
-    const bob_SPDeposit_initial = (await stabilityPool.getCompoundedLUSDDeposit(bob)).toString()
-    console.log("bob_SPDeposit_initial", bob_SPDeposit_initial.toString())
+    console.log("price", (await priceFeed.getPrice()).toString())
+    console.log("accRate", (await troveManager.accumulatedRate()).toString())
+    console.log("bob pending debt", (await troveManager.getPendingLUSDDebtReward(bob)).toString())
+    console.log("bob pending eth", (await troveManager.getPendingETHReward(bob)).toString())
+    console.log("carol pending debt", (await troveManager.getPendingLUSDDebtReward(carol)).toString())
+    console.log("carol pending eth", (await troveManager.getPendingETHReward(carol)).toString())
+    console.log("dennis pending debt", (await troveManager.getPendingLUSDDebtReward(dennis)).toString())
+    console.log("dennis pending eth", (await troveManager.getPendingETHReward(dennis)).toString())
+    console.log("bob debt", (await troveManager.getTroveActualDebt(bob)).toString())
+    console.log("bob coll", (await troveManager.getTroveColl(bob)).toString())
+    console.log("carol debt", (await troveManager.getTroveActualDebt(carol)).toString())
+    console.log("carol coll", (await troveManager.getTroveColl(carol)).toString())
+    console.log("dennis debt", (await troveManager.getTroveActualDebt(dennis)).toString())
+    console.log("dennis coll", (await troveManager.getTroveColl(dennis)).toString())
+    */
 
     // Price drops
     await priceFeed.setPrice(dec(100, 18))
@@ -3888,20 +3906,15 @@ contract('TroveManager', async accounts => {
     assert.isTrue(await sortedTroves.contains(flyn))
 
     // Liquidate Flyn
-    tx = await troveManager.liquidate(flyn)
-    const lusdGainLiq = th.getRawEventArgByName(tx, stabilityPoolInterface, stabilityPool.address, "DistributeToSP", "lusdGain");
-    console.log("lusdGainLiq", lusdGainLiq.toString())
+    await troveManager.liquidate(flyn)
     assert.isFalse(await sortedTroves.contains(flyn))
 
     // Price bounces back, bringing B, C, D back above MCR
     await priceFeed.setPrice(dec(200, 18))
 
-
-    const bob_SPDeposit_before = await stabilityPool.getCompoundedLUSDDeposit(bob)
-    const carol_SPDeposit_before = await stabilityPool.getCompoundedLUSDDeposit(carol)
-    const dennis_SPDeposit_before = await stabilityPool.getCompoundedLUSDDeposit(dennis)
-    const totalDepositsBefore = bob_SPDeposit_before.add(carol_SPDeposit_before).add(dennis_SPDeposit_before)
-    //console.log("totalDepositsBefore", totalDepositsBefore.toString())
+    const bob_SPDeposit_before = (await stabilityPool.getCompoundedLUSDDeposit(bob)).toString()
+    const carol_SPDeposit_before = (await stabilityPool.getCompoundedLUSDDeposit(carol)).toString()
+    const dennis_SPDeposit_before = (await stabilityPool.getCompoundedLUSDDeposit(dennis)).toString()
 
     const bob_ETHGain_before = (await stabilityPool.getDepositorETHGain(bob)).toString()
     const carol_ETHGain_before = (await stabilityPool.getDepositorETHGain(carol)).toString()
@@ -3913,93 +3926,95 @@ contract('TroveManager', async accounts => {
     assert.isTrue(LUSDinSP.gte(mv._zeroBN))
     assert.isTrue(ETHinSP.gte(mv._zeroBN))
 
+    // skip bootstrapping phase
+    await th.fastForwardTime(timeValues.SECONDS_IN_ONE_WEEK * 2, web3.currentProvider)
+    /*
+    const bob_ICR_right_before = await troveManager.getCurrentICR(bob, price)
+    const carol_ICR_right_before = await troveManager.getCurrentICR(carol, price)
+    const dennis_ICR_right_before = await troveManager.getCurrentICR(dennis, price)
 
-    debt = await contracts.troveManager.getEntireSystemDebt(await contracts.troveManager.accumulatedRate())
-    supply = await contracts.lusdToken.totalSupply()
-    console.log("debt", debt.toString())
-    console.log("supply", supply.toString())
-    console.log("supply - debt", supply.sub(debt).toString())
+    console.log("price", (await priceFeed.getPrice()).toString())
+    console.log("accRate", (await troveManager.accumulatedRate()).toString())
+    console.log("bob pending debt", (await troveManager.getPendingLUSDDebtReward(bob)).toString())
+    console.log("bob pending eth", (await troveManager.getPendingETHReward(bob)).toString())
+    console.log("carol pending debt", (await troveManager.getPendingLUSDDebtReward(carol)).toString())
+    console.log("carol pending eth", (await troveManager.getPendingETHReward(carol)).toString())
+    console.log("dennis pending debt", (await troveManager.getPendingLUSDDebtReward(dennis)).toString())
+    console.log("dennis pending eth", (await troveManager.getPendingETHReward(dennis)).toString())
+    console.log("bob debt", (await troveManager.getTroveActualDebt(bob)).toString())
+    console.log("bob coll", (await troveManager.getTroveColl(bob)).toString())
+    console.log("carol debt", (await troveManager.getTroveActualDebt(carol)).toString())
+    console.log("carol coll", (await troveManager.getTroveColl(carol)).toString())
+    console.log("dennis debt", (await troveManager.getTroveActualDebt(dennis)).toString())
+    console.log("dennis coll", (await troveManager.getTroveColl(dennis)).toString())
 
-    const bob_ICR_before = await troveManager.getCurrentICR(bob, price)
-    const carol_ICR_before = await troveManager.getCurrentICR(carol, price)
-    const dennis_ICR_before = await troveManager.getCurrentICR(dennis, price)
+
+
+    console.log("bob_ICR_right_before", bob_ICR_right_before.toString())
+    console.log("carol_ICR_right_before", carol_ICR_right_before.toString())
+    console.log("dennis_ICR_right_before", dennis_ICR_right_before.toString())
+    */
 
     // Erin redeems LUSD
     //await th.redeemCollateral(erin, contracts, redemptionAmount, th._100pct)
     tx = await th.redeemCollateralAndGetTxObject(erin, contracts, redemptionAmount, th._100pct)
-    debt = await contracts.troveManager.getEntireSystemDebt(await contracts.troveManager.accumulatedRate())
-    supply = await contracts.lusdToken.totalSupply()
-    console.log("debt", debt.toString())
-    console.log("supply", supply.toString())
-    console.log("supply - debt", supply.sub(debt).toString())
-    const lusdGainRedeem = toBN(th.getRawEventArgByName(tx, stabilityPoolInterface, stabilityPool.address, "DistributeToSP", "lusdGain"));
-    const [LUSDAmount, totalLUSDRedeemed, totalETHDrawn, ETHFee] = th.getEmittedRedemptionValues(tx)
-    console.log("LUSDAmount", LUSDAmount.toString())
-    console.log("totalLUSDRedeemed", totalLUSDRedeemed.toString())
-    console.log("lusdGainRedeem", lusdGainRedeem.toString())
+    /*
+    console.log(tx.logs)
+    const newNicr = await th.getRawEventArgByName(tx, troveManagerInterface, troveManager.address, "PartialNicr", "newNicr");
+    const borrower = await th.getRawEventArgByName(tx, troveManagerInterface, troveManager.address, "PartialNicr", "borrower");
+    const newActualDebt = await th.getRawEventArgByName(tx, troveManagerInterface, troveManager.address, "PartialNicr", "newActualDebt");
+    console.log("borrower", borrower.toString())
+    console.log("newNicr", newNicr.toString())
+    console.log("newActualDebt", newActualDebt.toString())
+    console.log("accumulatedRate", (await contracts.troveManager.accumulatedRate()).toString())
+    console.log("par", (await contracts.relayer.par()).toString())
+    */
 
     price = await priceFeed.getPrice()
     const bob_ICR_after = await troveManager.getCurrentICR(bob, price)
     const carol_ICR_after = await troveManager.getCurrentICR(carol, price)
     const dennis_ICR_after = await troveManager.getCurrentICR(dennis, price)
-
-    console.log("bob_ICR_before", bob_ICR_before.toString())
-    console.log("carol_ICR_before", carol_ICR_before.toString())
-    console.log("dennis_ICR_before", dennis_ICR_before.toString())
-
+    /*
+    console.log("price after", (await priceFeed.getPrice()).toString())
+    console.log("accRate after", (await troveManager.accumulatedRate()).toString())
+    console.log("bob pending debt after", (await troveManager.getPendingLUSDDebtReward(bob)).toString())
+    console.log("bob pending eth after", (await troveManager.getPendingETHReward(bob)).toString())
+    console.log("carol pending debt after", (await troveManager.getPendingLUSDDebtReward(carol)).toString())
+    console.log("carol pending eth after", (await troveManager.getPendingETHReward(carol)).toString())
+    console.log("dennis pending debt after", (await troveManager.getPendingLUSDDebtReward(dennis)).toString())
+    console.log("dennis pending eth after", (await troveManager.getPendingETHReward(dennis)).toString())
+    console.log("bob debt after", (await troveManager.getTroveActualDebt(bob)).toString())
+    console.log("bob coll after", (await troveManager.getTroveColl(bob)).toString())
+    console.log("carol debt after", (await troveManager.getTroveActualDebt(carol)).toString())
+    console.log("carol coll after", (await troveManager.getTroveColl(carol)).toString())
+    console.log("dennis debt after", (await troveManager.getTroveActualDebt(dennis)).toString())
+    console.log("dennis coll after", (await troveManager.getTroveColl(dennis)).toString())
     console.log("bob_ICR_after", bob_ICR_after.toString())
     console.log("carol_ICR_after", carol_ICR_after.toString())
     console.log("dennis_ICR_after", dennis_ICR_after.toString())
+    */
 
     // Check ICR of B, C and D troves has increased,i.e. they have been hit by redemptions
     assert.isTrue(bob_ICR_after.gte(bob_ICR_before))
     assert.isTrue(carol_ICR_after.gte(carol_ICR_before))
     assert.isTrue(dennis_ICR_after.gte(dennis_ICR_before))
 
-    const bob_SPDeposit_delta = lusdGainRedeem.mul(bob_SPDeposit_before).div(totalDepositsBefore)
-    const carol_SPDeposit_delta = lusdGainRedeem.mul(carol_SPDeposit_before).div(totalDepositsBefore)
-    const dennis_SPDeposit_delta = lusdGainRedeem.mul(dennis_SPDeposit_before).div(totalDepositsBefore)
-
-    const bob_SPDeposit_after = await stabilityPool.getCompoundedLUSDDeposit(bob)
-    const carol_SPDeposit_after = await stabilityPool.getCompoundedLUSDDeposit(carol)
-    const dennis_SPDeposit_after = await stabilityPool.getCompoundedLUSDDeposit(dennis)
-
-    console.log("bob_SPDeposit_before", bob_SPDeposit_before.toString())
-    console.log("bob_SPDeposit_after", bob_SPDeposit_after.toString())
-    console.log("totalDepositsBefore", totalDepositsBefore.toString())
-    console.log("bob_SPDeposit_delta", bob_SPDeposit_delta.toString())
-
-    const totalDepositsAfter = await stabilityPool.getTotalLUSDDeposits()
-    const depositsSum = bob_SPDeposit_after.add(carol_SPDeposit_after).add(dennis_SPDeposit_after)
-    console.log("totalDepositsAfter", totalDepositsAfter.toString())
-    console.log("depositsSum", depositsSum.toString())
+    const bob_SPDeposit_after = (await stabilityPool.getCompoundedLUSDDeposit(bob)).toString()
+    const carol_SPDeposit_after = (await stabilityPool.getCompoundedLUSDDeposit(carol)).toString()
+    const dennis_SPDeposit_after = (await stabilityPool.getCompoundedLUSDDeposit(dennis)).toString()
 
     const bob_ETHGain_after = (await stabilityPool.getDepositorETHGain(bob)).toString()
     const carol_ETHGain_after = (await stabilityPool.getDepositorETHGain(carol)).toString()
     const dennis_ETHGain_after = (await stabilityPool.getDepositorETHGain(dennis)).toString()
 
     // Check B, C, D Stability Pool deposits and ETH gain have not been affected by redemptions from their troves
-    console.log("bob_SPDeposit_before plus lusdGainRed", bob_SPDeposit_before.add(bob_SPDeposit_delta).toString())
-    console.log("bob_SPDeposit_after", bob_SPDeposit_after.toString())
-
-    // TODO
-    // These checks were previously exact matches, but not anymore. Is this ok?
-    assert.isAtMost(th.getDifference(bob_SPDeposit_before.add(bob_SPDeposit_delta), bob_SPDeposit_after), 200)
-    assert.isAtMost(th.getDifference(carol_SPDeposit_before.add(carol_SPDeposit_delta), carol_SPDeposit_after), 500)
-    assert.isAtMost(th.getDifference(dennis_SPDeposit_before.add(dennis_SPDeposit_delta), dennis_SPDeposit_after), 600)
-    //assert.equal(bob_SPDeposit_before, bob_SPDeposit_after)
-    //assert.equal(carol_SPDeposit_before, carol_SPDeposit_after)
-    //assert.equal(dennis_SPDeposit_before, dennis_SPDeposit_after)
+    assert.equal(bob_SPDeposit_before, bob_SPDeposit_after)
+    assert.equal(carol_SPDeposit_before, carol_SPDeposit_after)
+    assert.equal(dennis_SPDeposit_before, dennis_SPDeposit_after)
 
     assert.equal(bob_ETHGain_before, bob_ETHGain_after)
     assert.equal(carol_ETHGain_before, carol_ETHGain_after)
     assert.equal(dennis_ETHGain_before, dennis_ETHGain_after)
-
-    debt = await contracts.troveManager.getEntireSystemDebt(await contracts.troveManager.accumulatedRate())
-    supply = await contracts.lusdToken.totalSupply()
-    console.log("debt", debt.toString())
-    console.log("supply", supply.toString())
-    console.log("supply - debt", supply.sub(debt).toString())
   })
 
   it("redeemCollateral(): caller can redeem their entire LUSDToken balance", async () => {

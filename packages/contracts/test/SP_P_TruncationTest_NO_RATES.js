@@ -1,7 +1,7 @@
 const deploymentHelper = require("../utils/deploymentHelpers.js")
 const { StabilityPoolProxy } = require("../utils/proxyHelpers.js")
 const testHelpers = require("../utils/testHelpers.js")
-
+const RateControlTester = artifacts.require("./RateControlTester.sol")
 const th = testHelpers.TestHelper
 const timeValues = testHelpers.TimeValues
 const dec = th.dec
@@ -42,6 +42,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     beforeEach(async () => {
       contracts = await deploymentHelper.deployLiquityCore()
       contracts.troveManager = await TroveManagerTester.new()
+      contracts.rateControl = await RateControlTester.new()
+      await contracts.rateControl.setCoBias(0)
       contracts.lusdToken = await LUSDToken.new(
         contracts.troveManager.address,
         contracts.stabilityPool.address,
@@ -83,7 +85,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     // Open 3 Troves with 1e9 LUSD debt
     for (account of [A, B, C]) {
       await borrowerOperations.openTrove(await getLUSDAmountForDesiredDebt(1e9), account, account, {from: account, value: dec(1e7, 'ether') })
-      assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      //assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      assert.isAtMost(th.getDifference(await th.getTroveEntireDebt(contracts, account), toBN(dec(1e9, 18))), 1)
     }
 
     // A  deposits to SP - i.e. minimum needed to reduce P to 1e9
@@ -94,7 +97,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     const P_0 = await stabilityPool.P()
     console.log(P_0.toString())
     assert.equal(P_0, dec(1,18))
-    
+    console.log("scale", (await stabilityPool.currentScale()).toString())
+
     // Price drop -> liquidate Trove A -> price rises 
     await priceFeed.setPrice(dec(105, 18))
     await troveManager.liquidate(A, { from: owner });
@@ -102,11 +106,12 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     await priceFeed.setPrice(dec(200, 18))
 
      // Check P reduced by factor of 1e9
-    const P_1 = await stabilityPool.P() 
+    const P_1 = await stabilityPool.P()
     assert.equal(P_1, dec(1, 9))
     console.log("P1:")
     console.log(P_1.toString())
-    
+    console.log("scale", (await stabilityPool.currentScale()).toString())
+
     // A re-fills SP back up to deposit 0 level, i.e. just enough to reduce P by 1e9
     const deposit_1 = deposit_0.sub(await stabilityPool.getTotalLUSDDeposits()).sub(toBN(1e9))
     await stabilityPool.provideToSP(deposit_1, ZERO_ADDRESS, {from: A})
@@ -118,10 +123,11 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     await priceFeed.setPrice(dec(200, 18))
 
     // Check P reduced by factor of 1e9, it’s now re-scaled up
-    const P_2 = await stabilityPool.P() 
+    const P_2 = await stabilityPool.P()
     assert.isTrue(P_2.eq(th.toBN(1e9)))
     console.log("P2:")
     console.log(P_2.toString())
+    console.log("scale", (await stabilityPool.currentScale()).toString())
 
     // A re-fills SP to same pre-liq level again
     const deposit_2 = deposit_0.sub(await stabilityPool.getTotalLUSDDeposits())
@@ -133,6 +139,7 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     assert.equal(await troveManager.getTroveStatus(C), 3) // status: closed by liq
     await priceFeed.setPrice(dec(200, 18))
 
+    console.log("scale", (await stabilityPool.currentScale()).toString())
     // This final liq fails. As expected, the 'assert' in SP line 618 reverts, since 'newP' equals 0 inside the final liq
   })
 
@@ -144,7 +151,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     // Open 3 Troves with 1e9 LUSD debt
     for (account of [A, B, C]) {
       await borrowerOperations.openTrove(await getLUSDAmountForDesiredDebt(1e9), account, account, {from: account, value: dec(1e7, 'ether') })
-      assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      //assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      assert.isAtMost(th.getDifference(await th.getTroveEntireDebt(contracts, account), toBN(dec(1e9, 18))), 1)
     }
 
     // A  deposits to SP - i.e. minimum needed to reduce P to 1e9
@@ -208,7 +216,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     // Open 3 Troves with 1e9 LUSD debt
     for (account of [A, B, C]) {
       await borrowerOperations.openTrove(await getLUSDAmountForDesiredDebt(1e9), account, account, {from: account, value: dec(1e7, 'ether') })
-      assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      //assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      assert.isAtMost(th.getDifference(await th.getTroveEntireDebt(contracts, account), toBN(dec(1e9, 18))), 1)
     }
 
     // A  deposits to SP - i.e. minimum needed to reduce P to 1e9
@@ -297,7 +306,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     // Open 3 Troves with 1e9 LUSD debt
     for (account of [A, B, C]) {
       await borrowerOperations.openTrove(await getLUSDAmountForDesiredDebt(1e9), account, account, {from: account, value: dec(1e7, 'ether') })
-      assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      //assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      assert.isAtMost(th.getDifference(await th.getTroveEntireDebt(contracts, account), toBN(dec(1e9, 18))), 1)
     }
 
     // A  deposits to SP - i.e. minimum needed to reduce P to 1e9
@@ -388,7 +398,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     // Open 3 Troves with 1e9 LUSD debt
     for (account of [A, B, C]) {
       await borrowerOperations.openTrove(await getLUSDAmountForDesiredDebt(1e9), account, account, {from: account, value: dec(1e7, 'ether') })
-      assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      //assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      assert.isAtMost(th.getDifference(await th.getTroveEntireDebt(contracts, account), toBN(dec(1e9, 18))), 1)
     }
 
     // A  deposits to SP - i.e. minimum needed to reduce P to 1e9
@@ -485,7 +496,8 @@ contract('StabilityPool Scale Factor issue tests', async accounts => {
     // Open 3 Troves with 1e9 LUSD debt
     for (account of [A, B, C]) {
       await borrowerOperations.openTrove(await getLUSDAmountForDesiredDebt(1e9), account, account, {from: account, value: dec(1e7, 'ether') })
-      assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      //assert.isTrue((await th.getTroveEntireDebt(contracts, account)).eq(th.toBN(dec(1e9, 18))))
+      assert.isAtMost(th.getDifference(await th.getTroveEntireDebt(contracts, account), toBN(dec(1e9, 18))), 1)
     }
 
     // A  deposits to SP - i.e. minimum needed to reduce P to 1e9

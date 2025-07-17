@@ -191,11 +191,13 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         //assert(vars.compositeDebt > 0);
         
         vars.ICR = LiquityMath._computeCR(msg.value, vars.compositeDebt, vars.price, vars.par);
-        vars.NICR = LiquityMath._computeNominalCR(msg.value, vars.compositeDebt);
+
+        //vars.NICR = LiquityMath._computeNominalCR(msg.value, vars.compositeDebt);
 
         _requireICRisAboveMCR(vars.ICR);
 
         uint256 nCompositeDebt = _normalizedDebt(vars.compositeDebt, vars.accRate);
+        vars.NICR = LiquityMath._computeNominalCR(msg.value, nCompositeDebt);
 
         if (_getTCR(vars.price, vars.accRate) < CCR) {
             _requireICRisAboveCCR(vars.ICR);

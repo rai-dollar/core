@@ -321,7 +321,8 @@ class DeploymentHelper {
     const borrowerWrappersScript = await BorrowerWrappersScript.new(
       contracts.borrowerOperations.address,
       contracts.troveManager.address,
-      LQTYContracts.lqtyStaking.address
+      LQTYContracts.lqtyStaking.address,
+      contracts.relayer.address
     )
     contracts.borrowerWrappers = new BorrowerWrappersProxy(owner, proxies, borrowerWrappersScript.address)
 
@@ -423,7 +424,8 @@ class DeploymentHelper {
     // set contracts in HintHelpers
     await contracts.hintHelpers.setAddresses(
       contracts.sortedTroves.address,
-      contracts.troveManager.address
+      contracts.troveManager.address,
+      contracts.relayer.address
     )
       
     await contracts.relayer.setAddresses(
