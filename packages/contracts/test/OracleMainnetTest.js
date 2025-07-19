@@ -7,7 +7,9 @@ const { TestHelper, TimeValues } = require("../utils/testHelpers.js")
 const th = TestHelper
 const { BigNumber } = require("ethers");
 const { dec, assertRevert, toBN } = th
-const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY;
+const { secrets } = require('../secrets.js');
+const ALCHEMY_API_KEY = secrets.alchemyAPIKey;
+console.log("ALCHEMY_API_KEY", ALCHEMY_API_KEY);
 const hre = require("hardhat");
 // test with:
 // source .env && anvil --fork-url https://eth-mainnet.g.alchemy.com/v2/ALCHEMY_API_KEY --chain-id 31337
@@ -87,7 +89,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             params: [
                 {
                     forking: {
-                        jsonRpcUrl: process.env.MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/ALCHEMY_API_KEY",
+                        jsonRpcUrl: process.env.MAINNET_RPC_URL || `https://eth-mainnet.alchemyapi.io/v2/${ALCHEMY_API_KEY}`,
                         blockNumber: 22894418,
                     },
                 },
@@ -315,7 +317,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
             params: [
                 {
                     forking: {
-                        jsonRpcUrl: process.env.MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/ALCHEMY_API_KEY",
+                        jsonRpcUrl: process.env.MAINNET_RPC_URL || `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
                         // Optional: pin to specific block for consistency
                         blockNumber: 22894418,
                     },
@@ -585,7 +587,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
                 params: [
                     {
                         forking: {
-                            jsonRpcUrl: process.env.MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/ALCHEMY_API_KEY",
+                            jsonRpcUrl: process.env.MAINNET_RPC_URL || `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
                             blockNumber: 22894418,
                         },
                     },
@@ -682,7 +684,7 @@ contract('PriceFeedMainnetForkTest', async accounts => {
                 params: [
                     {
                         forking: {
-                            jsonRpcUrl: process.env.MAINNET_RPC_URL || "https://eth-mainnet.g.alchemy.com/v2/ALCHEMY_API_KEY",
+                            jsonRpcUrl: process.env.MAINNET_RPC_URL || `https://eth-mainnet.g.alchemy.com/v2/${ALCHEMY_API_KEY}`,
                             // Optional: pin to specific block for consistency
                             blockNumber: 22894418,
                         },
