@@ -7,7 +7,7 @@ const { TestHelper, TimeValues } = require("../utils/testHelpers.js")
 const th = TestHelper
 const { BigNumber } = require("ethers");
 const { dec, assertRevert, toBN } = th
-const { ALCHEMY_API_KEY } = process.env;
+const ALCHEMY_API_KEY = process.env.ALCHEMY_API_KEY;
 const hre = require("hardhat");
 // test with:
 // source .env && anvil --fork-url https://eth-mainnet.g.alchemy.com/v2/ALCHEMY_API_KEY --chain-id 31337
