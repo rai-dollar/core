@@ -8,5 +8,5 @@ interface IPriceFeed {
     event LastGoodPriceUpdated(uint _lastGoodPrice);
    
     // --- Function ---
-    function fetchPrice() external returns (uint);
+    function fetchPrice() external returns (uint256, bool);
 }

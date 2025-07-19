@@ -76,6 +76,10 @@ class MainnetDeploymentHelper {
     const hintHelpersFactory = await this.getFactory("HintHelpers")
     const lusdTokenFactory = await this.getFactory("LUSDToken")
     const tellorCallerFactory = await this.getFactory("TellorCaller")
+    const wstEthPriceFeedFactory = await this.getFactory("WSTETHPriceFeed")
+    const rethPriceFeedFactory = await this.getFactory("RETHPriceFeed")
+    const wbtcPriceFeedFactory = await this.getFactory("WBTCPriceFeed")
+    const wethPriceFeedFactory = await this.getFactory("WETHPriceFeed")
 
     // Deploy txs
     const priceFeed = await this.loadOrDeploy(priceFeedFactory, 'priceFeed', deploymentState)
@@ -89,6 +93,34 @@ class MainnetDeploymentHelper {
     const borrowerOperations = await this.loadOrDeploy(borrowerOperationsFactory, 'borrowerOperations', deploymentState)
     const hintHelpers = await this.loadOrDeploy(hintHelpersFactory, 'hintHelpers', deploymentState)
     const tellorCaller = await this.loadOrDeploy(tellorCallerFactory, 'tellorCaller', deploymentState, [tellorMasterAddr])
+
+    // Deploy price feeds
+    const wstEthPriceFeed = await this.loadOrDeploy(wstEthPriceFeedFactory, 'wstEthPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.WSTETH_ERC20,
+      configParams.priceFeedParams.ethUsdStalenessThreshold,
+      configParams.priceFeedParams.stEthUsdStalenessThreshold,
+    ])
+
+    const rethPriceFeed = await this.loadOrDeploy(rethPriceFeedFactory, 'rethPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+      configParams.externalAddrs.RETH_ERC20,
+      configParams.priceFeedParams.ethUsdStalenessThreshold,
+      configParams.priceFeedParams.rethUsdStalenessThreshold,
+    ])
+    const wbtcPriceFeed = await this.loadOrDeploy(wbtcPriceFeedFactory, 'wbtcPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_WBTCBTC_PROXY,
+      configParams.externalAddrs.CHAINLINK_BTCUSD_PROXY,
+      configParams.priceFeedParams.wbtcBtcStalenessThreshold,
+      configParams.priceFeedParams.btcUsdStalenessThreshold,
+    ])
+
+    const wethPriceFeed = await this.loadOrDeploy(wethPriceFeedFactory, 'wethPriceFeed', deploymentState, [
+      configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+      configParams.priceFeedParams.ethUsdStalenessThreshold,
+    ])
 
     const lusdTokenParams = [
       troveManager.address,
@@ -117,6 +149,30 @@ class MainnetDeploymentHelper {
       await this.verifyContract('hintHelpers', deploymentState)
       await this.verifyContract('tellorCaller', deploymentState, [tellorMasterAddr])
       await this.verifyContract('lusdToken', deploymentState, lusdTokenParams)
+      await this.verifyContract('wstEthPriceFeed', deploymentState, [
+        configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+        configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+        configParams.externalAddrs.WSTETH_ERC20,
+        configParams.priceFeedParams.ethUsdStalenessThreshold,
+        configParams.priceFeedParams.stEthUsdStalenessThreshold,
+      ])
+      await this.verifyContract('rethPriceFeed', deploymentState, [
+        configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+        configParams.externalAddrs.CHAINLINK_STETHUSD_PROXY,
+        configParams.externalAddrs.RETH_ERC20,
+        configParams.priceFeedParams.ethUsdStalenessThreshold,
+        configParams.priceFeedParams.rethUsdStalenessThreshold,
+      ])
+      await this.verifyContract('wbtcPriceFeed', deploymentState, [
+        configParams.externalAddrs.CHAINLINK_WBTCBTC_PROXY,
+        configParams.externalAddrs.CHAINLINK_BTCUSD_PROXY,
+        configParams.priceFeedParams.wbtcBtcStalenessThreshold,
+        configParams.priceFeedParams.btcUsdStalenessThreshold,
+      ])
+      await this.verifyContract('wethPriceFeed', deploymentState, [
+        configParams.externalAddrs.CHAINLINK_ETHUSD_PROXY,
+        configParams.priceFeedParams.ethUsdStalenessThreshold,
+      ])
     }
 
     const coreContracts = {
@@ -131,7 +187,11 @@ class MainnetDeploymentHelper {
       collSurplusPool,
       borrowerOperations,
       hintHelpers,
-      tellorCaller
+      tellorCaller,
+      wstEthPriceFeed,
+      rethPriceFeed,
+      wbtcPriceFeed,
+      wethPriceFeed
     }
     return coreContracts
   }
